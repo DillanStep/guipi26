@@ -1,0 +1,45 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "guipi26"
+version = "0.1.0a2"
+description = "A fast custom-rendered Windows UI engine for Python with a Bootstrap-style shell. Early preview — APIs will change."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.8"
+authors = [{ name = "Dillan Stephenson" }]
+keywords = ["gui", "windows", "ui", "ctypes", "win32", "sidebar", "dashboard"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Win32 (MS Windows)",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: User Interfaces",
+    "Topic :: Software Development :: Widget Sets",
+]
+
+[project.urls]
+Homepage = "https://github.com/DillanStep/guipi26"
+Source = "https://github.com/DillanStep/guipi26"
+Issues = "https://github.com/DillanStep/guipi26/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["guipi26"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "guipi26",
+    "examples",
+    "docs",
+    "README.md",
+    "LICENSE",
+]
