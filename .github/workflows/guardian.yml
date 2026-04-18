@@ -1,0 +1,112 @@
+name: Guardian
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main, develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  ui-safety:
+    name: UI safety lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run UI safety check
+        id: lint
+        run: |
+          set +e
+          python tools/ui_safety_check.py | tee ui_safety.txt
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+        shell: bash
+      - name: Upload report
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-safety-report
+          path: ui_safety.txt
+      - name: Fail on issues
+        if: steps.lint.outputs.exit_code != '0'
+        run: exit 1
+
+  perf-gate:
+    name: Performance gate
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install package
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+      - name: Run perf gate
+        id: perf
+        shell: bash
+        run: |
+          set +e
+          python tools/perf_gate.py --controls 200 --paints 80 --runs 3
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+      - name: Upload report
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-report
+          path: perf_report.json
+      - name: Fail on regression
+        if: steps.perf.outputs.exit_code != '0'
+        run: exit 1
+
+  comment:
+    name: PR comment
+    needs: [ui-safety, perf-gate]
+    if: always() && github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Build comment body
+        id: body
+        shell: bash
+        run: |
+          {
+            echo "## 🛡️ Guardian report"
+            echo ""
+            echo "### UI safety"
+            if [ -f artifacts/ui-safety-report/ui_safety.txt ]; then
+              echo '```'
+              cat artifacts/ui-safety-report/ui_safety.txt
+              echo '```'
+            else
+              echo "_No report produced._"
+            fi
+            echo ""
+            echo "### Performance gate"
+            if [ -f artifacts/perf-report/perf_report.json ]; then
+              echo '```json'
+              cat artifacts/perf-report/perf_report.json
+              echo '```'
+            else
+              echo "_No report produced._"
+            fi
+          } > comment.md
+          {
+            echo "body<<EOF"
+            cat comment.md
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+      - name: Post / update PR comment
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: guardian
+          message: ${{ steps.body.outputs.body }}
