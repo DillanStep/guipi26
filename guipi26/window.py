@@ -570,6 +570,9 @@ class Chart:
     height: int = 240
     accent: Optional[str] = None
     tab: Optional[str] = None
+    # Entrance reveal: 0 = hidden, 1 = fully drawn. Bars grow + labels fade in.
+    reveal_progress: float = 0.0
+    reveal_target: float = 1.0
 
 
 @dataclass
@@ -794,7 +797,7 @@ class Dropdown:
 
 @dataclass
 class ProgressBar:
-    value: float = 0.0  # 0.0 .. 1.0
+    value: float = 0.0  # 0.0 .. 1.0 (target)
     x: int = 24
     y: int = 24
     width: int = 240
@@ -802,6 +805,8 @@ class ProgressBar:
     accent: Optional[str] = None
     show_label: bool = False
     tab: Optional[str] = None
+    # Animated display value that eases toward `value`.
+    display_value: float = 0.0
 
 
 @dataclass
@@ -1369,12 +1374,24 @@ class Window:
                 _ease_pair(item)
 
         # Sidebar collapse width animation.
-        for nav in self.nav_bars if hasattr(self, "nav_bars") else []:
-            pass
         for nav in getattr(self, "collapsible_nav_bars", []):
             target = 1.0 if nav.collapsed else 0.0
             new_val, moving = self._ease_toward(nav.collapse_progress, target)
             nav.collapse_progress = new_val
+            if moving:
+                still_animating = True
+
+        # Chart entrance reveal (bars grow, labels fade in).
+        for chart in self.charts:
+            new_val, moving = self._ease_toward(chart.reveal_progress, chart.reveal_target)
+            chart.reveal_progress = new_val
+            if moving:
+                still_animating = True
+
+        # Progress bar value ease (display_value chases value).
+        for pb in self.progress_bars:
+            new_val, moving = self._ease_toward(pb.display_value, pb.value)
+            pb.display_value = new_val
             if moving:
                 still_animating = True
 
@@ -2327,20 +2344,33 @@ class Window:
         max_value = max(point[1] for point in chart.points) or 1.0
         slot_width = max(24, (plot_right - plot_left) // len(chart.points))
         bar_width = max(14, slot_width - 22)
+        reveal = max(0.0, min(1.0, chart.reveal_progress))
+        bar_count = len(chart.points)
 
         for index, point in enumerate(chart.points):
             label, value = point
+            # Per-bar staggered reveal: each bar starts a bit later than the previous.
+            stagger_start = (index / max(1, bar_count)) * 0.35
+            local_t = max(0.0, min(1.0, (reveal - stagger_start) / max(0.001, 1.0 - stagger_start)))
+            # Ease-out cubic for a snappy finish.
+            eased = 1.0 - (1.0 - local_t) ** 3
             bar_left = plot_left + index * slot_width + 10
             bar_right = min(bar_left + bar_width, plot_right - 6)
-            bar_height = int((value / max_value) * max(16, plot_bottom - plot_top - 8))
+            full_height = int((value / max_value) * max(16, plot_bottom - plot_top - 8))
+            bar_height = int(full_height * eased)
             bar_top = plot_bottom - bar_height
             fill = _blend(accent, "#ffffff", 0.12 + (index % 3) * 0.12)
-            self._draw_round_rect(device_context, bar_left, bar_top, bar_right, plot_bottom, 6, fill, fill)
+            if bar_height > 0:
+                self._draw_round_rect(device_context, bar_left, bar_top, bar_right, plot_bottom, 6, fill, fill)
 
-            value_rect = RECT(bar_left - 10, bar_top - 22, bar_right + 10, bar_top - 2)
-            self._draw_text(device_context, str(int(value)), value_rect, self.theme.text_secondary, "caption", DT_CENTER | DT_VCENTER)
-            label_rect = RECT(bar_left - 12, plot_bottom + 8, bar_right + 12, plot_bottom + 28)
-            self._draw_text(device_context, label, label_rect, self.theme.text_secondary, "caption", DT_CENTER | DT_VCENTER)
+            # Fade value + label text in as the bar completes its reveal.
+            label_alpha = max(0.0, min(1.0, eased))
+            if label_alpha > 0.05:
+                text_color = _blend(self.theme.surface, self.theme.text_secondary, label_alpha)
+                value_rect = RECT(bar_left - 10, bar_top - 22, bar_right + 10, bar_top - 2)
+                self._draw_text(device_context, str(int(value)), value_rect, text_color, "caption", DT_CENTER | DT_VCENTER)
+                label_rect = RECT(bar_left - 12, plot_bottom + 8, bar_right + 12, plot_bottom + 28)
+                self._draw_text(device_context, label, label_rect, text_color, "caption", DT_CENTER | DT_VCENTER)
 
     # ------------------------------------------------------------------
     # Form controls
@@ -2545,7 +2575,8 @@ class Window:
 
     def _draw_progress(self, device_context, control):
         accent = control.accent or self.theme.accent
-        ratio = max(0.0, min(1.0, control.value))
+        # Use the animated display_value so the fill eases toward the target.
+        ratio = max(0.0, min(1.0, control.display_value))
         radius = max(2, control.height // 2)
         self._draw_round_rect(
             device_context,
@@ -3053,6 +3084,7 @@ class Window:
     def add_chart(self, title, points, x=24, y=160, width=360, height=240, accent=None, tab=None):
         chart = Chart(title=title, points=points, x=x, y=y, width=width, height=height, accent=accent, tab=tab)
         self.charts.append(chart)
+        self._schedule_animation()
         self.invalidate()
         return chart
 
@@ -3157,7 +3189,9 @@ class Window:
 
     def add_progress_bar(self, value=0.0, x=24, y=24, width=240, height=8, accent=None, show_label=False, tab=None):
         control = ProgressBar(value=value, x=x, y=y, width=width, height=height, accent=accent, show_label=show_label, tab=tab)
+        control.display_value = 0.0  # start empty and animate to initial value
         self.progress_bars.append(control)
+        self._schedule_animation()
         self.invalidate()
         return control
 
@@ -3304,6 +3338,13 @@ class Window:
         return self
 
     def invalidate(self):
+        # Auto-schedule animation for any progress bar whose value has drifted
+        # from its animated display value (lets users set `bar.value = ...` and
+        # just call refresh without touching animation APIs).
+        for pb in getattr(self, "progress_bars", []):
+            if abs(pb.display_value - pb.value) > ANIM_EPSILON:
+                self._schedule_animation()
+                break
         if getattr(self, "hwnd", None):
             user32.InvalidateRect(self.hwnd, None, True)
 
