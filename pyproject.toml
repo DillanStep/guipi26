@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "guipi26"
-version = "0.1.0a1"
+version = "0.1.0a2"
 description = "A fast custom-rendered Windows UI engine for Python with a Bootstrap-style shell. Early preview — APIs will change."
 readme = "README.md"
 license = { file = "LICENSE" }

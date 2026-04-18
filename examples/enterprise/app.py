@@ -79,12 +79,16 @@ REGION_REVENUE = [
 # ------------------------------------------------------------------ constants
 PAD = 28
 GAP = 18
-HEADER_TOP = 24
-HEADER_H = 38
+MENU_H = 36
+HEADER_TOP = MENU_H + 16
+HEADER_H = 44
+HEADER_GAP = 14
 SUBHEADER_H = 22
 NAV_H = 54
 STATUS_H = 36
-CONTENT_TOP = HEADER_TOP + HEADER_H + 8 + SUBHEADER_H + 18 + NAV_H + 16
+# Distance from top-edge of a panel to the first interior control
+# (panel chrome = accent bar + title + subtitle = ~86 px)
+PANEL_BODY_TOP = 96
 
 
 def _row(x, width, count, gap=GAP):
@@ -96,6 +100,7 @@ def _row(x, width, count, gap=GAP):
 def main():
     win = g.create_window("Northwind Analytics — GUIpi26", 1320, 820)
     win.set_min_size(1040, 680)
+    win.enable_scrolling(True)
     g.set_theme(win, background="#f4f6fa", surface="#ffffff", accent="#2563eb")
 
     # ----- status bar (drawn before everything else so layout uses it) -----
@@ -103,6 +108,7 @@ def main():
         win, "Ready · Northwind Analytics · v0.1.0",
         x=0, y=0, width=0, height=STATUS_H, style="caption",
     )
+    status_label.pinned = True  # don't scroll with content
 
     def status(text):
         status_label.text = text
@@ -178,7 +184,7 @@ def main():
         )
         subtitle = g.create_label(
             win, subtitle_text,
-            x=0, y=HEADER_TOP + HEADER_H + 6, width=800, height=SUBHEADER_H,
+            x=0, y=HEADER_TOP + HEADER_H + HEADER_GAP, width=800, height=SUBHEADER_H,
             style="caption", tab=tab_key,
         )
         return title, subtitle
@@ -265,8 +271,8 @@ def main():
         tab="customers",
     )
 
-    detail_name   = g.create_label(win, "", x=0, y=0, width=0, height=28,
-                                   style="title", tab="customers")
+    detail_name   = g.create_label(win, "", x=0, y=0, width=0, height=26,
+                                   style="subtitle", tab="customers")
     detail_plan   = g.create_label(win, "", x=0, y=0, width=0, height=22,
                                    style="caption", tab="customers")
     detail_status = g.create_label(win, "", x=0, y=0, width=0, height=22,
@@ -508,7 +514,7 @@ def main():
         for lbl in (sub_o, sub_c, sub_or, sub_r, sub_s):
             lbl.x = cx; lbl.width = max(420, cw)
 
-        nav_y = HEADER_TOP + HEADER_H + 6 + SUBHEADER_H + 18
+        nav_y = HEADER_TOP + HEADER_H + HEADER_GAP + SUBHEADER_H + 18
         for nav in (nav_o, nav_c, nav_or, nav_r, nav_s):
             nav.x = cx; nav.y = nav_y; nav.width = cw
 
@@ -528,18 +534,18 @@ def main():
         chart_pipeline.x, chart_pipeline.width = chart_w_right
         chart_revenue.y = cards_bottom
         chart_pipeline.y = cards_bottom
-        # Charts grow to fill remaining vertical space (above activity)
-        activity_h = 180
-        max_chart_bottom = bottom_safe - activity_h - GAP
-        chart_h = max(180, max_chart_bottom - cards_bottom)
+        # Fixed chart height; if total content exceeds the viewport the
+        # window-level scrollbar handles overflow.
+        chart_h = 260
         chart_revenue.height = chart_h
         chart_pipeline.height = chart_h
 
+        activity_h = PANEL_BODY_TOP + len(activity_labels) * 24 + 20
         panel_activity.x = cx; panel_activity.width = cw
         panel_activity.y = chart_revenue.y + chart_revenue.height + GAP
-        panel_activity.height = max(120, bottom_safe - panel_activity.y)
+        panel_activity.height = activity_h
         line_x = cx + 20
-        line_y = panel_activity.y + 70
+        line_y = panel_activity.y + PANEL_BODY_TOP
         for label in activity_labels:
             label.x = line_x
             label.y = line_y
@@ -552,20 +558,20 @@ def main():
         detail_panel.x, detail_panel.width = det_w
         cust_panel.y = body_top
         detail_panel.y = body_top
-        # panels stretch to bottom safe area
-        panel_h = max(360, bottom_safe - body_top)
+        # Natural panel height (scrollbar engages if it exceeds viewport)
+        panel_h = max(420, bottom_safe - body_top)
         cust_panel.height = panel_h
         detail_panel.height = panel_h
 
         cust_listbox.x = cust_panel.x + 18
-        cust_listbox.y = cust_panel.y + 70
+        cust_listbox.y = cust_panel.y + PANEL_BODY_TOP
         cust_listbox.width = cust_panel.width - 36
-        cust_listbox.height = max(160, cust_panel.height - 88)
+        cust_listbox.height = max(160, cust_panel.height - PANEL_BODY_TOP - 18)
 
         # detail panel internals
         dx = detail_panel.x + 20
         dw = detail_panel.width - 40
-        dy = detail_panel.y + 70
+        dy = detail_panel.y + PANEL_BODY_TOP
         for lbl in (detail_name, detail_plan, detail_status, detail_arr, detail_seats):
             lbl.x = dx; lbl.width = dw; lbl.y = dy
             dy += lbl.height + 6
@@ -609,9 +615,9 @@ def main():
         saved_panel.y = body_top + report_chart_h + GAP
         saved_panel.height = max(180, bottom_safe - saved_panel.y)
         tree_reports.x = saved_panel.x + 18
-        tree_reports.y = saved_panel.y + 70
+        tree_reports.y = saved_panel.y + PANEL_BODY_TOP
         tree_reports.width = saved_panel.width - 36
-        tree_reports.height = max(120, saved_panel.height - 88)
+        tree_reports.height = max(120, saved_panel.height - PANEL_BODY_TOP - 18)
 
         # ----- SETTINGS ----------------------------------------------------
         pc0, pc1 = _row(cx, cw, 2, gap=GAP)
@@ -626,7 +632,7 @@ def main():
         # preferences body
         px = pref_panel.x + 20
         pw = pref_panel.width - 40
-        py = pref_panel.y + 70
+        py = pref_panel.y + PANEL_BODY_TOP
         for sw in (pref_dark, pref_email, pref_beta):
             sw.x = px; sw.width = pw; sw.y = py
             py += sw.height + 14
@@ -643,7 +649,7 @@ def main():
         # profile body
         fx = profile_panel.x + 20
         fw = profile_panel.width - 40
-        fy2 = profile_panel.y + 70
+        fy2 = profile_panel.y + PANEL_BODY_TOP
         for cap, inp in ((name_caption, name_input),
                          (email_caption, email_input),
                          (role_caption, role_dropdown)):

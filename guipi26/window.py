@@ -761,6 +761,10 @@ class Dropdown:
     def contains_header(self, x_pos, y_pos):
         return _rect_contains(self.x, self.y, self.x + self.width, self.y + self.height, x_pos, y_pos)
 
+    def contains(self, x_pos, y_pos):
+        # Hover hit-test: just the header (the dropdown panel only matters when expanded)
+        return self.contains_header(x_pos, y_pos)
+
     def option_height(self):
         return 32
 
@@ -945,6 +949,14 @@ class Window:
         self._cursor_ibeam = user32.LoadCursorW(None, _make_int_resource(IDC_IBEAM))
         self._min_width = 480
         self._min_height = 360
+        # Vertical content scrolling (opt-in via enable_scrolling())
+        self._scrollable = False
+        self._scroll_y = 0
+        self._scroll_max = 0
+        self._scrollbar_width = 12
+        self._scrollbar_dragging = False
+        self._scrollbar_drag_start_mouse_y = 0
+        self._scrollbar_drag_start_scroll_y = 0
         self._layout_callbacks = []
         self._last_layout_size = (0, 0)
         self._register_window_class()
@@ -1038,10 +1050,13 @@ class Window:
             self._track_mouse_leave()
             x_pos, y_pos = _get_x_lparam(l_param), _get_y_lparam(l_param)
             self._mouse_x, self._mouse_y = x_pos, y_pos
+            if self._scrollbar_dragging:
+                self._update_scrollbar_drag(y_pos)
+                return 0
             if self._dragging_slider is not None:
                 self._update_slider_drag(x_pos)
                 return 0
-            self._update_hover_state(x_pos, y_pos)
+            self._with_scroll_shift(self._update_hover_state, x_pos, y_pos)
             return 0
 
         if message == WM_MOUSELEAVE:
@@ -1063,11 +1078,25 @@ class Window:
             return None
 
         if message == WM_LBUTTONDOWN:
-            self._handle_press(_get_x_lparam(l_param), _get_y_lparam(l_param))
+            x_pos, y_pos = _get_x_lparam(l_param), _get_y_lparam(l_param)
+            # Check window scrollbar first (drawn above content)
+            if self._scrollable and self._scroll_max > 0:
+                if self._hit_scrollbar_thumb(x_pos, y_pos):
+                    self._scrollbar_dragging = True
+                    self._scrollbar_drag_start_mouse_y = y_pos
+                    self._scrollbar_drag_start_scroll_y = self._scroll_y
+                    self.invalidate()
+                    return 0
+            self._with_scroll_shift(self._handle_press, x_pos, y_pos)
             return 0
 
         if message == WM_LBUTTONUP:
-            self._handle_click(_get_x_lparam(l_param), _get_y_lparam(l_param))
+            x_pos, y_pos = _get_x_lparam(l_param), _get_y_lparam(l_param)
+            if self._scrollbar_dragging:
+                self._scrollbar_dragging = False
+                self.invalidate()
+                return 0
+            self._with_scroll_shift(self._handle_click, x_pos, y_pos)
             return 0
 
         if message == WM_CHAR:
@@ -1299,6 +1328,9 @@ class Window:
                 tv.scroll_offset = max(0, getattr(tv, "scroll_offset", 0) - steps * rows)
                 self.invalidate()
                 return
+        # Fall through: scroll the window content if scrolling is enabled
+        if self._scrollable and self._scroll_max > 0:
+            self._scroll_to(self._scroll_y - steps * rows * 48)
 
     # ------------------------------------------------------------------
     # Keyboard accelerators
@@ -1791,6 +1823,154 @@ class Window:
         self._min_width = max(120, int(width))
         self._min_height = max(80, int(height))
 
+    def enable_scrolling(self, enabled=True):
+        """Enable a window-level vertical scrollbar that engages when content overflows.
+
+        Controls with a truthy ``pinned`` attribute are excluded from scrolling
+        (use this for status bars, headers, or anything that should stay put).
+        Sidebar nav and menu bar are always pinned automatically.
+        """
+        self._scrollable = bool(enabled)
+        self.invalidate()
+
+    # ---- internal helpers for scrolling -----------------------------------
+    def _scrollable_controls(self):
+        # All control collections that participate in content scrolling.
+        for collection in (
+            self.cards, self.panels, self.buttons, self.labels,
+            self.text_inputs, self.checkboxes, self.switches,
+            self.radio_groups, self.sliders, self.dropdowns,
+            self.progress_bars, self.list_boxes, self.tree_views,
+            self.charts, self.grids, self.nav_bars,
+        ):
+            for control in collection:
+                if getattr(control, "pinned", False):
+                    continue
+                yield control
+
+    def _content_top_offset(self):
+        return self.menu_bar.height if self.menu_bar is not None else 0
+
+    def _compute_content_extent(self):
+        top = self._content_top_offset()
+        extent = top
+        for control in self._scrollable_controls():
+            if not self._is_control_visible(control):
+                continue
+            ctl_h = getattr(control, "height", 0) or 0
+            bottom = control.y + ctl_h
+            if bottom > extent:
+                extent = bottom
+        return extent
+
+    def _viewport_height(self):
+        _, h = self._client_size()
+        return max(1, h - self._content_top_offset())
+
+    def _update_scroll_bounds(self):
+        extent = self._compute_content_extent() - self._content_top_offset()
+        viewport = self._viewport_height()
+        # Add small bottom padding so the last control isn't flush with the edge
+        self._scroll_max = max(0, extent + 12 - viewport)
+        if self._scroll_y > self._scroll_max:
+            self._scroll_y = self._scroll_max
+        if self._scroll_y < 0:
+            self._scroll_y = 0
+
+    def _shift_scrollable(self, delta):
+        if not delta:
+            return
+        for control in self._scrollable_controls():
+            control.y += delta
+
+    def _scrollbar_track_rect(self):
+        width, height = self._client_size()
+        sidebar = self._primary_sidebar()
+        sidebar_w = self._nav_current_width(sidebar) if sidebar is not None else 0
+        top = self._content_top_offset() + 6
+        bottom = height - 6
+        right = width - 4
+        left = right - self._scrollbar_width
+        if left < sidebar_w + 4:
+            left = sidebar_w + 4
+            right = left + self._scrollbar_width
+        return left, top, right, bottom
+
+    def _scrollbar_thumb_rect(self):
+        if not self._scrollable or self._scroll_max <= 0:
+            return None
+        left, top, right, bottom = self._scrollbar_track_rect()
+        track_h = max(1, bottom - top)
+        viewport = self._viewport_height()
+        total = viewport + self._scroll_max
+        thumb_h = max(40, int(track_h * (viewport / total)))
+        thumb_h = min(thumb_h, track_h)
+        if self._scroll_max == 0:
+            thumb_top = top
+        else:
+            thumb_top = top + int((track_h - thumb_h) * (self._scroll_y / self._scroll_max))
+        return left, thumb_top, right, thumb_top + thumb_h
+
+    def _draw_window_scrollbar(self, device_context):
+        track = self._scrollbar_track_rect()
+        thumb = self._scrollbar_thumb_rect()
+        if thumb is None:
+            return
+        left, top, right, bottom = track
+        track_color = _blend(self.theme.background, self.theme.border, 0.4)
+        self._draw_round_rect(device_context, left, top, right, bottom,
+                              self._scrollbar_width // 2, track_color, track_color)
+        thumb_left, thumb_top, thumb_right, thumb_bottom = thumb
+        thumb_color = _blend(self.theme.text_secondary, self.theme.background,
+                             0.55 if not self._scrollbar_dragging else 0.25)
+        self._draw_round_rect(device_context, thumb_left, thumb_top,
+                              thumb_right, thumb_bottom,
+                              self._scrollbar_width // 2, thumb_color, thumb_color)
+
+    def _hit_scrollbar_thumb(self, x_pos, y_pos):
+        thumb = self._scrollbar_thumb_rect()
+        if thumb is None:
+            return False
+        left, top, right, bottom = thumb
+        return left <= x_pos <= right and top <= y_pos <= bottom
+
+    def _scroll_to(self, value):
+        if not self._scrollable:
+            return
+        new_y = max(0, min(self._scroll_max, int(value)))
+        if new_y != self._scroll_y:
+            self._scroll_y = new_y
+            self.invalidate()
+
+    def _with_scroll_shift(self, fn, *args, **kwargs):
+        """Run fn with scrollable controls shifted to match what's on screen.
+
+        Used so that mouse hit-tests against control.x/y match the visually
+        rendered positions when content is scrolled.
+        """
+        shift = -self._scroll_y if self._scrollable else 0
+        if shift:
+            self._shift_scrollable(shift)
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            if shift:
+                self._shift_scrollable(-shift)
+
+    def _update_scrollbar_drag(self, mouse_y):
+        if not self._scrollable or self._scroll_max <= 0:
+            return
+        track_left, track_top, track_right, track_bottom = self._scrollbar_track_rect()
+        thumb = self._scrollbar_thumb_rect()
+        if thumb is None:
+            return
+        track_h = max(1, track_bottom - track_top)
+        thumb_h = thumb[3] - thumb[1]
+        movable = max(1, track_h - thumb_h)
+        delta_mouse = mouse_y - self._scrollbar_drag_start_mouse_y
+        delta_scroll = int(delta_mouse * (self._scroll_max / movable))
+        self._scroll_to(self._scrollbar_drag_start_scroll_y + delta_scroll)
+
     def _resolve_card_overlaps(self, gap=12):
         """Push safety-on cards down so they don't overlap previously-placed cards."""
         visible = [card for card in self.cards if self._is_control_visible(card)]
@@ -1820,7 +2000,8 @@ class Window:
 
     def _sidebar_bounds(self, nav_bar):
         _, client_height = self._client_size()
-        return 0, 0, self._nav_current_width(nav_bar), client_height
+        top = self.menu_bar.height if self.menu_bar is not None else 0
+        return 0, top, self._nav_current_width(nav_bar), client_height
 
     def _primary_sidebar(self):
         for nav_bar in self.collapsible_nav_bars:
@@ -1836,12 +2017,14 @@ class Window:
 
     def _nav_toggle_rect(self, nav_bar):
         width = self._nav_current_width(nav_bar)
-        return (width - 38, 18, width - 14, 42)
+        sidebar_top = self.menu_bar.height if self.menu_bar is not None else 0
+        return (width - 38, sidebar_top + 18, width - 14, sidebar_top + 42)
 
     def _nav_item_rects(self, nav_bar):
         width = self._nav_current_width(nav_bar)
         item_height = 44
-        top = 92
+        sidebar_top = self.menu_bar.height if self.menu_bar is not None else 0
+        top = sidebar_top + 92
         rects = []
         for index, entry in enumerate(nav_bar.items or []):
             item_y = top + index * (item_height + 4)
@@ -2479,6 +2662,19 @@ class Window:
         self._draw_text(dc, text, rect, "#ffffff", "body", DT_LEFT | DT_VCENTER)
 
     def _paint(self):
+        # Update content scroll bounds *before* painting (uses current control coords)
+        if self._scrollable:
+            self._update_scroll_bounds()
+        shift = -self._scroll_y if self._scrollable else 0
+        if shift:
+            self._shift_scrollable(shift)
+        try:
+            self._paint_inner()
+        finally:
+            if shift:
+                self._shift_scrollable(-shift)
+
+    def _paint_inner(self):
         paint_struct = PAINTSTRUCT()
         screen_dc = user32.BeginPaint(self.hwnd, ctypes.byref(paint_struct))
         client_rect = RECT()
@@ -2657,6 +2853,10 @@ class Window:
 
         if self._tooltip.visible and self._tooltip.text:
             self._draw_tooltip(buffer_dc, self._tooltip, width, height)
+
+        # Window-level vertical scrollbar (drawn last so it sits above content)
+        if self._scrollable and self._scroll_max > 0:
+            self._draw_window_scrollbar(buffer_dc)
 
         gdi32.BitBlt(screen_dc, 0, 0, width, height, buffer_dc, 0, 0, SRCCOPY)
         gdi32.SelectObject(buffer_dc, old_bitmap)
