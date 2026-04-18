@@ -122,11 +122,15 @@ MOD_CTRL = 0x01
 MOD_SHIFT = 0x02
 MOD_ALT = 0x04
 
-# Tooltip + caret blink timer IDs.
+# Tooltip + caret blink + animation timer IDs.
 TIMER_TOOLTIP = 0x701
 TIMER_CARET = 0x702
+TIMER_ANIM = 0x703
 TOOLTIP_DELAY_MS = 500
 CARET_BLINK_MS = 530
+ANIM_INTERVAL_MS = 16     # ~60 fps
+ANIM_SPEED = 0.22         # ease factor per tick (0..1)
+ANIM_EPSILON = 0.002      # snap threshold
 
 
 def _rgb_to_colorref(color):
@@ -466,6 +470,8 @@ class Button:
     tooltip: Optional[str] = None
     hover_progress: float = 0.0
     hover_target: float = 0.0
+    press_progress: float = 0.0
+    press_target: float = 0.0
 
     def contains(self, x_pos, y_pos):
         return _rect_contains(self.x, self.y, self.x + self.width, self.y + self.height, x_pos, y_pos)
@@ -613,6 +619,7 @@ class CollapsibleNavBar:
     items: Optional[List[NavEntry]] = None
     selected_key: Optional[str] = None
     collapsed: bool = False
+    collapse_progress: float = 0.0  # 0=expanded, 1=collapsed (animated)
     tab: Optional[str] = None
 
 
@@ -941,6 +948,7 @@ class Window:
         self._tooltip_target = None
         self._tooltip_pending_at = 0
         self._tooltip_timer_set = False
+        self._anim_timer_set = False
         self._mouse_x = -1
         self._mouse_y = -1
         self._accelerators = []
@@ -1118,6 +1126,9 @@ class Window:
             if int(w_param) == TIMER_TOOLTIP:
                 self._on_tooltip_timer()
                 return 0
+            if int(w_param) == TIMER_ANIM:
+                self._animation_tick()
+                return 0
 
         return None
 
@@ -1180,19 +1191,24 @@ class Window:
         hovered_button = None
         hovered_tab = None
         hovered_form = None
+        changed = False
 
         for button in self.buttons:
             if self._is_control_visible(button) and button.contains(x_pos, y_pos):
                 hovered_button = button
-            button.hover_target = 1.0 if button is hovered_button else 0.0
-            button.hover_progress = button.hover_target
+            new_target = 1.0 if button is hovered_button else 0.0
+            if button.hover_target != new_target:
+                button.hover_target = new_target
+                changed = True
 
         for control_list in (self.text_inputs, self.checkboxes, self.switches, self.sliders, self.dropdowns):
             for control in control_list:
                 if hovered_form is None and self._is_control_visible(control) and control.contains(x_pos, y_pos):
                     hovered_form = control
-                control.hover_target = 1.0 if control is hovered_form else 0.0
-                control.hover_progress = control.hover_target
+                new_target = 1.0 if control is hovered_form else 0.0
+                if control.hover_target != new_target:
+                    control.hover_target = new_target
+                    changed = True
 
         # ListBox + TreeView hover (no per-row animation, just identity).
         for lb in self.list_boxes:
@@ -1213,8 +1229,13 @@ class Window:
             for item in self.tab_bar.tabs:
                 if item.contains(self.tab_bar, x_pos, y_pos):
                     hovered_tab = item
-                item.hover_target = 1.0 if item is hovered_tab else 0.0
-                item.hover_progress = item.hover_target
+                new_target = 1.0 if item is hovered_tab else 0.0
+                if item.hover_target != new_target:
+                    item.hover_target = new_target
+                    changed = True
+
+        if changed:
+            self._schedule_animation()
 
         if (
             hovered_button is not self._hovered_button
@@ -1302,6 +1323,67 @@ class Window:
             self._tooltip_timer_set = False
         if self._tooltip.visible:
             self._tooltip.visible = False
+            self.invalidate()
+
+    # ------------------------------------------------------------------
+    # Animation tick — eases hover/press/collapse progress toward targets
+    # ------------------------------------------------------------------
+    def _schedule_animation(self):
+        if not self._anim_timer_set and self.hwnd:
+            user32.SetTimer(self.hwnd, TIMER_ANIM, ANIM_INTERVAL_MS, None)
+            self._anim_timer_set = True
+
+    def _ease_toward(self, current, target):
+        """Exponential ease; returns (new_value, still_animating)."""
+        diff = target - current
+        if abs(diff) < ANIM_EPSILON:
+            return target, False
+        return current + diff * ANIM_SPEED, True
+
+    def _animation_tick(self):
+        still_animating = False
+
+        # Hover progress on all interactive controls.
+        def _ease_pair(obj):
+            nonlocal still_animating
+            new_val, moving = self._ease_toward(obj.hover_progress, obj.hover_target)
+            obj.hover_progress = new_val
+            if moving:
+                still_animating = True
+
+        for button in self.buttons:
+            _ease_pair(button)
+            # Button press ease (independent of hover).
+            new_press, press_moving = self._ease_toward(button.press_progress, button.press_target)
+            button.press_progress = new_press
+            if press_moving:
+                still_animating = True
+
+        for control_list in (self.text_inputs, self.checkboxes, self.switches,
+                             self.sliders, self.dropdowns):
+            for control in control_list:
+                _ease_pair(control)
+
+        if self.tab_bar is not None:
+            for item in self.tab_bar.tabs:
+                _ease_pair(item)
+
+        # Sidebar collapse width animation.
+        for nav in self.nav_bars if hasattr(self, "nav_bars") else []:
+            pass
+        for nav in getattr(self, "collapsible_nav_bars", []):
+            target = 1.0 if nav.collapsed else 0.0
+            new_val, moving = self._ease_toward(nav.collapse_progress, target)
+            nav.collapse_progress = new_val
+            if moving:
+                still_animating = True
+
+        if still_animating:
+            self.invalidate()
+        else:
+            user32.KillTimer(self.hwnd, TIMER_ANIM)
+            self._anim_timer_set = False
+            # Final repaint at settled state.
             self.invalidate()
 
     # ------------------------------------------------------------------
@@ -1422,6 +1504,12 @@ class Window:
         return None
 
     def _handle_press(self, x_pos, y_pos):
+        # Button press animation (depress state).
+        for button in self.buttons:
+            if self._is_control_visible(button) and button.contains(x_pos, y_pos):
+                button.press_target = 1.0
+                self._schedule_animation()
+                break
         # Slider drag-start has priority so the handle starts moving immediately.
         for slider in self.sliders:
             if not self._is_control_visible(slider):
@@ -1524,6 +1612,15 @@ class Window:
             self.invalidate()
             return
 
+        # Release any depressed button animation.
+        any_pressed = False
+        for button in self.buttons:
+            if button.press_target != 0.0:
+                button.press_target = 0.0
+                any_pressed = True
+        if any_pressed:
+            self._schedule_animation()
+
         # Open menu panel owns the next click.
         if self.menu_bar is not None and self.menu_bar.open_index >= 0:
             panel = self._menu_panel_rect(self.menu_bar.open_index)
@@ -1582,6 +1679,7 @@ class Window:
             toggle_left, toggle_top, toggle_right, toggle_bottom = self._nav_toggle_rect(nav_bar)
             if _rect_contains(toggle_left, toggle_top, toggle_right, toggle_bottom, x_pos, y_pos):
                 nav_bar.collapsed = not nav_bar.collapsed
+                self._schedule_animation()
                 self.invalidate()
                 return
 
@@ -1996,7 +2094,10 @@ class Window:
             placed.append((left, top, right, bottom))
 
     def _nav_current_width(self, nav_bar):
-        return nav_bar.collapsed and nav_bar.collapsed_width or nav_bar.width
+        # Animated: interpolate between expanded and collapsed widths using
+        # collapse_progress (0=expanded, 1=collapsed). Driven by _animation_tick.
+        t = max(0.0, min(1.0, getattr(nav_bar, "collapse_progress", 1.0 if nav_bar.collapsed else 0.0)))
+        return int(round(nav_bar.width + (nav_bar.collapsed_width - nav_bar.width) * t))
 
     def _sidebar_bounds(self, nav_bar):
         _, client_height = self._client_size()
@@ -2812,27 +2913,32 @@ class Window:
         for button in self.buttons:
             if not self._is_control_visible(button):
                 continue
+            press = button.press_progress
+            # On press, shift the button down by 1px and darken it slightly.
+            dy = int(round(press * 1.5))
             is_primary = button.accent is not None and button.background is None
             if is_primary:
                 fill = _blend(button.accent, "#ffffff", 0.08 - button.hover_progress * 0.05)
-                border = _blend(button.accent, "#000000", 0.08)
+                fill = _blend(fill, "#000000", press * 0.1)
+                border = _blend(button.accent, "#000000", 0.08 + press * 0.06)
                 text_color = "#ffffff"
             else:
                 fill = button.background or self.theme.button_face
                 fill = _blend(fill, self.theme.button_hover, button.hover_progress * 0.85)
-                border = _blend(button.border or self.theme.button_border, self.theme.text_secondary, button.hover_progress * 0.08)
+                fill = _blend(fill, "#000000", press * 0.08)
+                border = _blend(button.border or self.theme.button_border, self.theme.text_secondary, button.hover_progress * 0.08 + press * 0.06)
                 text_color = button.foreground or self.theme.button_text
             self._draw_round_rect(
                 buffer_dc,
                 button.x,
-                button.y,
+                button.y + dy,
                 button.x + button.width,
-                button.y + button.height,
+                button.y + button.height + dy,
                 8,
                 fill,
                 border,
             )
-            text_rect = RECT(button.x + 12, button.y, button.x + button.width - 12, button.y + button.height)
+            text_rect = RECT(button.x + 12, button.y + dy, button.x + button.width - 12, button.y + button.height + dy)
             self._draw_text(buffer_dc, button.text, text_rect, text_color, "button", DT_CENTER | DT_VCENTER)
 
         # Dropdowns paint last so collapsed headers + expanded popups overlay everything else.
@@ -2910,6 +3016,7 @@ class Window:
             items=normalized_items,
             selected_key=selected_key or (normalized_items[0].key if normalized_items else None),
             collapsed=collapsed,
+            collapse_progress=1.0 if collapsed else 0.0,
             tab=tab,
         )
         self.collapsible_nav_bars.append(nav_bar)
