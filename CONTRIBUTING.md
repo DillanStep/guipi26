@@ -18,10 +18,16 @@ Verify it works:
 python examples\dashboard.py
 ```
 
+## Branching model
+
+- **`main`** — release branch. Only updated by merging `develop` (or hotfix branches) when cutting a release. Tags (`v*`) are created here and trigger the PyPI publish workflow.
+- **`develop`** — integration branch. Day-to-day work merges here.
+- **feature branches** — branch from `develop` using `feat/short-description`, `fix/short-description`, or `docs/short-description`. Open PRs into `develop`.
+
 ## Workflow
 
 1. Open (or comment on) an issue describing what you want to change.
-2. Branch from `main`: `git checkout -b feat/short-description`.
+2. Branch from `develop`: `git checkout develop && git pull && git checkout -b feat/short-description`.
 3. Keep the change focused — small PRs land faster.
 4. Run the smoke checks before pushing:
    ```powershell
