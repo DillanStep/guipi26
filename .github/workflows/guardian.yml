@@ -12,6 +12,10 @@ permissions:
   pull-requests: write
   issues: write
 
+env:
+  # Opt into Node.js 24 for JS-based actions (Node 20 deprecated June 2026).
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   ui-safety:
     name: UI safety lint

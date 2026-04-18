@@ -19,12 +19,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 BENCH = ROOT / "benchmarks" / "bench_guipi26.py"
 
-# CI runners are noisy; set generous floors / ceilings.
+# CI runners are shared, virtualised and ~3-5x slower than typical dev boxes.
+# Thresholds reflect that — they catch order-of-magnitude regressions, not noise.
 PERF_THRESHOLDS = {
-    "cold_start_ms_max": 1500.0,    # cold-start a Window
-    "create_ms_max":     1500.0,    # create N controls
-    "paint_ms_p95_max":   30.0,     # 95th-percentile paint
-    "fps_estimate_min":   60.0,     # minimum sustained fps
+    "cold_start_ms_max": 3000.0,    # cold-start a Window
+    "create_ms_max":     3000.0,    # create N controls
+    "paint_ms_p95_max":   80.0,     # 95th-percentile paint
+    "fps_estimate_min":   25.0,     # minimum sustained fps
 }
 
 

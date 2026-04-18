@@ -15,6 +15,9 @@ permissions:
   security-events: write   # for CodeQL + SARIF upload
   pull-requests: write     # for PR comment
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   pip-audit:
     name: Dependency audit (pip-audit)
