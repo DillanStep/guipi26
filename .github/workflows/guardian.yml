@@ -33,7 +33,7 @@ jobs:
           echo "exit_code=$?" >> "$GITHUB_OUTPUT"
         shell: bash
       - name: Upload report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ui-safety-report
           path: ui_safety.txt
@@ -61,7 +61,7 @@ jobs:
           python tools/perf_gate.py --controls 200 --paints 80 --runs 3
           echo "exit_code=$?" >> "$GITHUB_OUTPUT"
       - name: Upload report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: perf-report
           path: perf_report.json
