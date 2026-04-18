@@ -62,6 +62,34 @@ Returns a layout helper with `.cells` — a list of `LayoutCell(x, y, width, hei
 
 Same idea but stacked vertically.
 
+## Form controls
+
+See [Form controls](forms.md) for a tutorial. Quick reference:
+
+```text
+create_text_input(app, value="", placeholder="", x, y, width, height, on_change, on_submit, password, max_length, tab) -> TextInput
+create_checkbox(app, label, checked, x, y, width, height, on_change, tab) -> Checkbox
+create_switch(app, label, on, x, y, width, height, on_change, tab) -> Switch
+create_radio_group(app, options, selected, x, y, width, item_height, on_change, tab) -> RadioGroup
+create_slider(app, value, minimum, maximum, step, x, y, width, height, on_change, tab) -> Slider
+create_dropdown(app, options, selected, placeholder, x, y, width, height, on_change, tab) -> Dropdown
+create_progress_bar(app, value, x, y, width, height, accent, show_label, tab) -> ProgressBar
+```
+
+Each returned object exposes a mutable state attribute you can read or write at any time:
+
+| Control | State attribute(s) |
+| --- | --- |
+| `TextInput` | `.value`, `.caret`, `.focused` |
+| `Checkbox` | `.checked` |
+| `Switch` | `.on` |
+| `RadioGroup` | `.selected` |
+| `Slider` | `.value` |
+| `Dropdown` | `.selected`, `.expanded` |
+| `ProgressBar` | `.value` (0.0 - 1.0) |
+
+After mutating state programmatically, call `window.invalidate()` to repaint.
+
 ## `Window` methods
 
 | Method | Description |

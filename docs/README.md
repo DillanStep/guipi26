@@ -6,6 +6,7 @@ A fast, custom-rendered Windows UI engine for Python. No Tkinter, no Qt — just
 
 - [Getting started](getting-started.md) — install and your first window
 - [Components](components.md) — every control with a short example
+- [Form controls](forms.md) — text input, checkbox, switch, radio, slider, dropdown, progress
 - [Layout & responsiveness](layout.md) — `on_layout`, grids, sidebar reflow
 - [Theming](theming.md) — colors and typography
 - [Card collision safety](collision-safety.md) — how cards avoid overlap

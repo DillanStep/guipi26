@@ -52,13 +52,25 @@ TME_LEAVE = 0x00000002
 TRANSPARENT = 1
 WM_CLOSE = 0x0010
 WM_DESTROY = 0x0002
+WM_LBUTTONDOWN = 0x0201
 WM_LBUTTONUP = 0x0202
 WM_MOUSELEAVE = 0x02A3
 WM_MOUSEMOVE = 0x0200
 WM_PAINT = 0x000F
 WM_SIZE = 0x0005
+WM_CHAR = 0x0102
+WM_KEYDOWN = 0x0100
 WS_OVERLAPPEDWINDOW = 0x00CF0000
 WS_VISIBLE = 0x10000000
+
+VK_BACK = 0x08
+VK_TAB = 0x09
+VK_RETURN = 0x0D
+VK_END = 0x23
+VK_HOME = 0x24
+VK_LEFT = 0x25
+VK_RIGHT = 0x27
+VK_DELETE = 0x2E
 
 
 def _rgb_to_colorref(color):
@@ -176,6 +188,10 @@ class TRACKMOUSEEVENT(ctypes.Structure):
     ]
 
 
+class SIZE(ctypes.Structure):
+    _fields_ = [("cx", wintypes.LONG), ("cy", wintypes.LONG)]
+
+
 user32.BeginPaint.argtypes = [wintypes.HWND, ctypes.POINTER(PAINTSTRUCT)]
 user32.BeginPaint.restype = HDC
 user32.CreateWindowExW.argtypes = [
@@ -271,6 +287,8 @@ gdi32.CreateSolidBrush.argtypes = [COLORREF]
 gdi32.CreateSolidBrush.restype = HBRUSH
 gdi32.DeleteDC.argtypes = [HDC]
 gdi32.DeleteDC.restype = wintypes.BOOL
+gdi32.GetTextExtentPoint32W.argtypes = [HDC, wintypes.LPCWSTR, ctypes.c_int, ctypes.POINTER(SIZE)]
+gdi32.GetTextExtentPoint32W.restype = wintypes.BOOL
 gdi32.DeleteObject.argtypes = [HGDIOBJ]
 gdi32.DeleteObject.restype = wintypes.BOOL
 gdi32.GetDeviceCaps.argtypes = [HDC, ctypes.c_int]
@@ -480,6 +498,183 @@ class CollapsibleNavBar:
     tab: Optional[str] = None
 
 
+@dataclass
+class TextInput:
+    value: str = ""
+    placeholder: str = ""
+    x: int = 24
+    y: int = 24
+    width: int = 240
+    height: int = 36
+    on_change: object = None
+    on_submit: object = None
+    tab: Optional[str] = None
+    password: bool = False
+    max_length: Optional[int] = None
+    caret: int = 0
+    focused: bool = False
+    hover_progress: float = 0.0
+    hover_target: float = 0.0
+
+    def contains(self, x_pos, y_pos):
+        return _rect_contains(self.x, self.y, self.x + self.width, self.y + self.height, x_pos, y_pos)
+
+
+@dataclass
+class Checkbox:
+    label: str = ""
+    checked: bool = False
+    x: int = 24
+    y: int = 24
+    width: int = 220
+    height: int = 28
+    on_change: object = None
+    tab: Optional[str] = None
+    hover_progress: float = 0.0
+    hover_target: float = 0.0
+
+    def contains(self, x_pos, y_pos):
+        return _rect_contains(self.x, self.y, self.x + self.width, self.y + self.height, x_pos, y_pos)
+
+
+@dataclass
+class Switch:
+    label: str = ""
+    on: bool = False
+    x: int = 24
+    y: int = 24
+    width: int = 220
+    height: int = 28
+    on_change: object = None
+    tab: Optional[str] = None
+    hover_progress: float = 0.0
+    hover_target: float = 0.0
+
+    def contains(self, x_pos, y_pos):
+        return _rect_contains(self.x, self.y, self.x + self.width, self.y + self.height, x_pos, y_pos)
+
+
+@dataclass
+class RadioOption:
+    key: str
+    label: str
+
+
+@dataclass
+class RadioGroup:
+    options: List[RadioOption]
+    selected: Optional[str] = None
+    x: int = 24
+    y: int = 24
+    width: int = 240
+    item_height: int = 28
+    on_change: object = None
+    tab: Optional[str] = None
+
+    @property
+    def height(self):
+        return len(self.options) * self.item_height
+
+    def contains(self, x_pos, y_pos):
+        return _rect_contains(self.x, self.y, self.x + self.width, self.y + self.height, x_pos, y_pos)
+
+    def hit_option(self, x_pos, y_pos):
+        if not self.contains(x_pos, y_pos):
+            return None
+        local_y = y_pos - self.y
+        index = local_y // self.item_height
+        if 0 <= index < len(self.options):
+            return self.options[index]
+        return None
+
+
+@dataclass
+class Slider:
+    value: float = 0.0
+    minimum: float = 0.0
+    maximum: float = 100.0
+    step: float = 0.0  # 0 means continuous
+    x: int = 24
+    y: int = 24
+    width: int = 240
+    height: int = 36
+    on_change: object = None
+    tab: Optional[str] = None
+    dragging: bool = False
+    hover_progress: float = 0.0
+    hover_target: float = 0.0
+
+    def contains(self, x_pos, y_pos):
+        # Wider hit-test so the handle is grabbable a few px outside the bar.
+        return _rect_contains(self.x - 4, self.y, self.x + self.width + 4, self.y + self.height, x_pos, y_pos)
+
+    def normalized(self):
+        if self.maximum == self.minimum:
+            return 0.0
+        return max(0.0, min(1.0, (self.value - self.minimum) / (self.maximum - self.minimum)))
+
+    def value_at(self, x_pos):
+        track_left = self.x + 8
+        track_right = self.x + self.width - 8
+        ratio = 0.0 if track_right <= track_left else (x_pos - track_left) / (track_right - track_left)
+        ratio = max(0.0, min(1.0, ratio))
+        raw = self.minimum + ratio * (self.maximum - self.minimum)
+        if self.step and self.step > 0:
+            steps = round((raw - self.minimum) / self.step)
+            raw = self.minimum + steps * self.step
+        return max(self.minimum, min(self.maximum, raw))
+
+
+@dataclass
+class Dropdown:
+    options: List[str]
+    selected: Optional[str] = None
+    placeholder: str = "Select..."
+    x: int = 24
+    y: int = 24
+    width: int = 240
+    height: int = 36
+    on_change: object = None
+    tab: Optional[str] = None
+    expanded: bool = False
+    hover_progress: float = 0.0
+    hover_target: float = 0.0
+
+    def contains_header(self, x_pos, y_pos):
+        return _rect_contains(self.x, self.y, self.x + self.width, self.y + self.height, x_pos, y_pos)
+
+    def option_height(self):
+        return 32
+
+    def panel_rect(self):
+        item_h = self.option_height()
+        top = self.y + self.height + 4
+        bottom = top + len(self.options) * item_h + 8
+        return self.x, top, self.x + self.width, bottom
+
+    def hit_option(self, x_pos, y_pos):
+        left, top, right, bottom = self.panel_rect()
+        if not _rect_contains(left, top, right, bottom, x_pos, y_pos):
+            return None
+        item_h = self.option_height()
+        index = (y_pos - top - 4) // item_h
+        if 0 <= index < len(self.options):
+            return self.options[index]
+        return None
+
+
+@dataclass
+class ProgressBar:
+    value: float = 0.0  # 0.0 .. 1.0
+    x: int = 24
+    y: int = 24
+    width: int = 240
+    height: int = 8
+    accent: Optional[str] = None
+    show_label: bool = False
+    tab: Optional[str] = None
+
+
 class Window:
     """A Windows-native custom-rendered GUI surface for GUIpi26."""
 
@@ -501,11 +696,21 @@ class Window:
         self.charts = []
         self.labels = []
         self.buttons = []
+        self.text_inputs = []
+        self.checkboxes = []
+        self.switches = []
+        self.radio_groups = []
+        self.sliders = []
+        self.dropdowns = []
+        self.progress_bars = []
         self.tab_bar = None
         self._font_cache = {}
         self._tracking_mouse = False
         self._hovered_button = None
         self._hovered_tab = None
+        self._hovered_form = None
+        self._focused_input = None
+        self._dragging_slider = None
         self._layout_callbacks = []
         self._last_layout_size = (0, 0)
         self._register_window_class()
@@ -591,7 +796,11 @@ class Window:
 
         if message == WM_MOUSEMOVE:
             self._track_mouse_leave()
-            self._update_hover_state(_get_x_lparam(l_param), _get_y_lparam(l_param))
+            x_pos, y_pos = _get_x_lparam(l_param), _get_y_lparam(l_param)
+            if self._dragging_slider is not None:
+                self._update_slider_drag(x_pos)
+                return 0
+            self._update_hover_state(x_pos, y_pos)
             return 0
 
         if message == WM_MOUSELEAVE:
@@ -599,9 +808,23 @@ class Window:
             self._update_hover_state(-1, -1)
             return 0
 
+        if message == WM_LBUTTONDOWN:
+            self._handle_press(_get_x_lparam(l_param), _get_y_lparam(l_param))
+            return 0
+
         if message == WM_LBUTTONUP:
             self._handle_click(_get_x_lparam(l_param), _get_y_lparam(l_param))
             return 0
+
+        if message == WM_CHAR:
+            if self._focused_input is not None:
+                self._handle_text_char(w_param)
+                return 0
+
+        if message == WM_KEYDOWN:
+            if self._focused_input is not None:
+                self._handle_text_key(w_param)
+                return 0
 
         return None
 
@@ -663,12 +886,20 @@ class Window:
     def _update_hover_state(self, x_pos, y_pos):
         hovered_button = None
         hovered_tab = None
+        hovered_form = None
 
         for button in self.buttons:
             if self._is_control_visible(button) and button.contains(x_pos, y_pos):
                 hovered_button = button
             button.hover_target = 1.0 if button is hovered_button else 0.0
             button.hover_progress = button.hover_target
+
+        for control_list in (self.text_inputs, self.checkboxes, self.switches, self.sliders, self.dropdowns):
+            for control in control_list:
+                if hovered_form is None and self._is_control_visible(control) and control.contains(x_pos, y_pos):
+                    hovered_form = control
+                control.hover_target = 1.0 if control is hovered_form else 0.0
+                control.hover_progress = control.hover_target
 
         if self.tab_bar is not None:
             for item in self.tab_bar.tabs:
@@ -677,12 +908,139 @@ class Window:
                 item.hover_target = 1.0 if item is hovered_tab else 0.0
                 item.hover_progress = item.hover_target
 
-        if hovered_button is not self._hovered_button or hovered_tab is not self._hovered_tab:
+        if (
+            hovered_button is not self._hovered_button
+            or hovered_tab is not self._hovered_tab
+            or hovered_form is not self._hovered_form
+        ):
             self._hovered_button = hovered_button
             self._hovered_tab = hovered_tab
+            self._hovered_form = hovered_form
             self.invalidate()
 
+    def _handle_press(self, x_pos, y_pos):
+        # Slider drag-start has priority so the handle starts moving immediately.
+        for slider in self.sliders:
+            if not self._is_control_visible(slider):
+                continue
+            if slider.contains(x_pos, y_pos):
+                slider.dragging = True
+                self._dragging_slider = slider
+                self._update_slider_drag(x_pos)
+                return
+
+    def _update_slider_drag(self, x_pos):
+        slider = self._dragging_slider
+        if slider is None:
+            return
+        new_value = slider.value_at(x_pos)
+        if new_value != slider.value:
+            slider.value = new_value
+            if slider.on_change is not None:
+                slider.on_change(slider.value)
+            self.invalidate()
+
+    def _handle_text_char(self, w_param):
+        target = self._focused_input
+        if target is None:
+            return
+        char_code = int(w_param)
+        if char_code == 0x08:  # backspace
+            if target.caret > 0:
+                target.value = target.value[: target.caret - 1] + target.value[target.caret:]
+                target.caret -= 1
+                if target.on_change is not None:
+                    target.on_change(target.value)
+                self.invalidate()
+            return
+        if char_code in (0x0D, 0x0A):  # Enter
+            if target.on_submit is not None:
+                target.on_submit(target.value)
+            return
+        if char_code < 0x20:
+            return
+        if target.max_length is not None and len(target.value) >= target.max_length:
+            return
+        char = chr(char_code)
+        target.value = target.value[: target.caret] + char + target.value[target.caret:]
+        target.caret += 1
+        if target.on_change is not None:
+            target.on_change(target.value)
+        self.invalidate()
+
+    def _handle_text_key(self, vk):
+        target = self._focused_input
+        if target is None:
+            return
+        if vk == VK_LEFT and target.caret > 0:
+            target.caret -= 1
+            self.invalidate()
+        elif vk == VK_RIGHT and target.caret < len(target.value):
+            target.caret += 1
+            self.invalidate()
+        elif vk == VK_HOME:
+            target.caret = 0
+            self.invalidate()
+        elif vk == VK_END:
+            target.caret = len(target.value)
+            self.invalidate()
+        elif vk == VK_DELETE and target.caret < len(target.value):
+            target.value = target.value[: target.caret] + target.value[target.caret + 1:]
+            if target.on_change is not None:
+                target.on_change(target.value)
+            self.invalidate()
+        elif vk == VK_TAB:
+            self._focus_next_text_input()
+
+    def _focus_next_text_input(self):
+        visible = [t for t in self.text_inputs if self._is_control_visible(t)]
+        if not visible:
+            return
+        if self._focused_input not in visible:
+            self._set_focused_input(visible[0])
+            return
+        idx = visible.index(self._focused_input)
+        self._set_focused_input(visible[(idx + 1) % len(visible)])
+
+    def _set_focused_input(self, target):
+        if self._focused_input is target:
+            return
+        if self._focused_input is not None:
+            self._focused_input.focused = False
+        self._focused_input = target
+        if target is not None:
+            target.focused = True
+            target.caret = len(target.value)
+        self.invalidate()
+
     def _handle_click(self, x_pos, y_pos):
+        # Finalise slider drag (do not interpret as a tap-on-track click).
+        if self._dragging_slider is not None:
+            self._dragging_slider.dragging = False
+            self._dragging_slider = None
+            self.invalidate()
+            return
+
+        # Expanded dropdown owns the next click: select an option, toggle, or collapse.
+        for dropdown in self.dropdowns:
+            if not dropdown.expanded or not self._is_control_visible(dropdown):
+                continue
+            option = dropdown.hit_option(x_pos, y_pos)
+            if option is not None:
+                dropdown.selected = option
+                dropdown.expanded = False
+                if dropdown.on_change is not None:
+                    dropdown.on_change(option)
+                self.invalidate()
+                return
+            if dropdown.contains_header(x_pos, y_pos):
+                dropdown.expanded = False
+                self.invalidate()
+                return
+            # Click landed outside this dropdown — collapse it and continue dispatch.
+            dropdown.expanded = False
+            self.invalidate()
+
         if self.tab_bar is not None:
             for item in self.tab_bar.tabs:
                 if item.contains(self.tab_bar, x_pos, y_pos):
@@ -704,12 +1062,75 @@ class Window:
                     self.invalidate()
                     return
 
+        # Form controls (toggle / focus / select).
+        clicked_input = None
+        for text_input in self.text_inputs:
+            if self._is_control_visible(text_input) and text_input.contains(x_pos, y_pos):
+                clicked_input = text_input
+                break
+        if clicked_input is not None:
+            self._set_focused_input(clicked_input)
+            return
+
+        for checkbox in self.checkboxes:
+            if self._is_control_visible(checkbox) and checkbox.contains(x_pos, y_pos):
+                checkbox.checked = not checkbox.checked
+                if checkbox.on_change is not None:
+                    checkbox.on_change(checkbox.checked)
+                self._set_focused_input(None)
+                self.invalidate()
+                return
+
+        for switch in self.switches:
+            if self._is_control_visible(switch) and switch.contains(x_pos, y_pos):
+                switch.on = not switch.on
+                if switch.on_change is not None:
+                    switch.on_change(switch.on)
+                self._set_focused_input(None)
+                self.invalidate()
+                return
+
+        for radio_group in self.radio_groups:
+            if not self._is_control_visible(radio_group):
+                continue
+            option = radio_group.hit_option(x_pos, y_pos)
+            if option is not None:
+                if radio_group.selected != option.key:
+                    radio_group.selected = option.key
+                    if radio_group.on_change is not None:
+                        radio_group.on_change(option.key)
+                self._set_focused_input(None)
+                self.invalidate()
+                return
+
+        for dropdown in self.dropdowns:
+            if self._is_control_visible(dropdown) and dropdown.contains_header(x_pos, y_pos):
+                dropdown.expanded = not dropdown.expanded
+                self._set_focused_input(None)
+                self.invalidate()
+                return
+
+        # Slider tap-to-jump (drag was already handled above).
+        for slider in self.sliders:
+            if self._is_control_visible(slider) and slider.contains(x_pos, y_pos):
+                new_value = slider.value_at(x_pos)
+                if new_value != slider.value:
+                    slider.value = new_value
+                    if slider.on_change is not None:
+                        slider.on_change(slider.value)
+                self.invalidate()
+                return
+
         for button in reversed(self.buttons):
             if self._is_control_visible(button) and button.contains(x_pos, y_pos):
                 if button.command is not None:
                     button.command()
+                self._set_focused_input(None)
                 self.invalidate()
                 return
+
+        # Click landed on empty space — drop focus.
+        self._set_focused_input(None)
 
     def _layout_tabs(self):
         if self.tab_bar is None:
@@ -1080,6 +1501,293 @@ class Window:
             label_rect = RECT(bar_left - 12, plot_bottom + 8, bar_right + 12, plot_bottom + 28)
             self._draw_text(device_context, label, label_rect, self.theme.text_secondary, "caption", DT_CENTER | DT_VCENTER)
 
+    # ------------------------------------------------------------------
+    # Form controls
+    # ------------------------------------------------------------------
+    def _measure_text_width(self, device_context, text, role):
+        if not text:
+            return 0
+        font = self._get_font(role)
+        old_font = gdi32.SelectObject(device_context, font)
+        size = SIZE()
+        gdi32.GetTextExtentPoint32W(device_context, text, len(text), ctypes.byref(size))
+        gdi32.SelectObject(device_context, old_font)
+        return int(size.cx)
+
+    def _draw_text_input(self, device_context, control):
+        focused = control.focused
+        hover = control.hover_progress
+        fill = _blend(self.theme.surface, self.theme.surface_alt, 0.4 + 0.2 * hover)
+        if focused:
+            border = self.theme.accent
+        else:
+            border = _blend(self.theme.border, self.theme.text_secondary, 0.1 + hover * 0.2)
+        self._draw_round_rect(
+            device_context,
+            control.x,
+            control.y,
+            control.x + control.width,
+            control.y + control.height,
+            8,
+            fill,
+            border,
+        )
+        display = control.value
+        if control.password and display:
+            display = "•" * len(display)
+        text_color = self.theme.text_primary
+        placeholder_color = _blend(self.theme.text_secondary, self.theme.surface_alt, 0.3)
+        text_rect = RECT(control.x + 12, control.y, control.x + control.width - 12, control.y + control.height)
+        if display:
+            self._draw_text(device_context, display, text_rect, text_color, "body", DT_LEFT | DT_VCENTER)
+        elif control.placeholder:
+            self._draw_text(device_context, control.placeholder, text_rect, placeholder_color, "body", DT_LEFT | DT_VCENTER)
+        if focused:
+            caret_text = display[: control.caret] if display else ""
+            caret_offset = self._measure_text_width(device_context, caret_text, "body")
+            caret_x = control.x + 12 + caret_offset
+            caret_top = control.y + 8
+            caret_bottom = control.y + control.height - 8
+            caret_rect = RECT(caret_x, caret_top, caret_x + 2, caret_bottom)
+            brush = gdi32.CreateSolidBrush(_rgb_to_colorref(self.theme.accent))
+            user32.FillRect(device_context, ctypes.byref(caret_rect), brush)
+            gdi32.DeleteObject(brush)
+
+    def _draw_checkbox(self, device_context, control):
+        box_size = 20
+        box_top = control.y + (control.height - box_size) // 2
+        box_left = control.x
+        hover = control.hover_progress
+        if control.checked:
+            fill = self.theme.accent
+            border = _blend(self.theme.accent, "#000000", 0.1)
+        else:
+            fill = _blend(self.theme.surface, self.theme.surface_alt, 0.5 + hover * 0.3)
+            border = _blend(self.theme.border, self.theme.accent, hover * 0.4)
+        self._draw_round_rect(
+            device_context,
+            box_left,
+            box_top,
+            box_left + box_size,
+            box_top + box_size,
+            5,
+            fill,
+            border,
+        )
+        if control.checked:
+            check_color = "#ffffff"
+            check_rect = RECT(box_left, box_top, box_left + box_size, box_top + box_size)
+            self._draw_text(device_context, "✓", check_rect, check_color, "button", DT_CENTER | DT_VCENTER)
+        if control.label:
+            label_rect = RECT(box_left + box_size + 12, control.y, control.x + control.width, control.y + control.height)
+            self._draw_text(device_context, control.label, label_rect, self.theme.text_primary, "body", DT_LEFT | DT_VCENTER)
+
+    def _draw_switch(self, device_context, control):
+        track_w = 44
+        track_h = 22
+        track_top = control.y + (control.height - track_h) // 2
+        track_left = control.x
+        if control.on:
+            fill = self.theme.accent
+            border = _blend(self.theme.accent, "#000000", 0.1)
+        else:
+            fill = _blend(self.theme.surface_alt, self.theme.border, 0.5 + control.hover_progress * 0.2)
+            border = _blend(self.theme.border, self.theme.text_secondary, 0.1)
+        self._draw_round_rect(
+            device_context,
+            track_left,
+            track_top,
+            track_left + track_w,
+            track_top + track_h,
+            track_h // 2,
+            fill,
+            border,
+        )
+        knob_size = track_h - 4
+        knob_x = track_left + (track_w - knob_size - 2) if control.on else track_left + 2
+        knob_y = track_top + 2
+        self._draw_round_rect(
+            device_context,
+            knob_x,
+            knob_y,
+            knob_x + knob_size,
+            knob_y + knob_size,
+            knob_size // 2,
+            "#ffffff",
+            _blend("#ffffff", "#000000", 0.1),
+        )
+        if control.label:
+            label_rect = RECT(track_left + track_w + 12, control.y, control.x + control.width, control.y + control.height)
+            self._draw_text(device_context, control.label, label_rect, self.theme.text_primary, "body", DT_LEFT | DT_VCENTER)
+
+    def _draw_radio_group(self, device_context, control):
+        for index, option in enumerate(control.options):
+            row_top = control.y + index * control.item_height
+            circle_size = 18
+            circle_top = row_top + (control.item_height - circle_size) // 2
+            circle_left = control.x
+            selected = control.selected == option.key
+            if selected:
+                outer_fill = self.theme.accent
+                outer_border = _blend(self.theme.accent, "#000000", 0.1)
+            else:
+                outer_fill = _blend(self.theme.surface, self.theme.surface_alt, 0.5)
+                outer_border = self.theme.border
+            self._draw_round_rect(
+                device_context,
+                circle_left,
+                circle_top,
+                circle_left + circle_size,
+                circle_top + circle_size,
+                circle_size // 2,
+                outer_fill,
+                outer_border,
+            )
+            if selected:
+                inner = 8
+                inner_left = circle_left + (circle_size - inner) // 2
+                inner_top = circle_top + (circle_size - inner) // 2
+                self._draw_round_rect(
+                    device_context,
+                    inner_left,
+                    inner_top,
+                    inner_left + inner,
+                    inner_top + inner,
+                    inner // 2,
+                    "#ffffff",
+                    "#ffffff",
+                )
+            label_rect = RECT(circle_left + circle_size + 12, row_top, control.x + control.width, row_top + control.item_height)
+            self._draw_text(device_context, option.label, label_rect, self.theme.text_primary, "body", DT_LEFT | DT_VCENTER)
+
+    def _draw_slider(self, device_context, control):
+        track_top = control.y + control.height // 2 - 3
+        track_left = control.x + 8
+        track_right = control.x + control.width - 8
+        # Track background
+        self._draw_round_rect(
+            device_context,
+            track_left,
+            track_top,
+            track_right,
+            track_top + 6,
+            3,
+            _blend(self.theme.surface_alt, self.theme.border, 0.4),
+            _blend(self.theme.surface_alt, self.theme.border, 0.5),
+        )
+        ratio = control.normalized()
+        fill_right = int(track_left + (track_right - track_left) * ratio)
+        if fill_right > track_left:
+            self._draw_round_rect(
+                device_context,
+                track_left,
+                track_top,
+                fill_right,
+                track_top + 6,
+                3,
+                self.theme.accent,
+                self.theme.accent,
+            )
+        knob = 18
+        knob_x = fill_right - knob // 2
+        knob_y = control.y + control.height // 2 - knob // 2
+        self._draw_round_rect(
+            device_context,
+            knob_x,
+            knob_y,
+            knob_x + knob,
+            knob_y + knob,
+            knob // 2,
+            "#ffffff",
+            _blend(self.theme.accent, "#000000", 0.05),
+        )
+
+    def _draw_progress(self, device_context, control):
+        accent = control.accent or self.theme.accent
+        ratio = max(0.0, min(1.0, control.value))
+        radius = max(2, control.height // 2)
+        self._draw_round_rect(
+            device_context,
+            control.x,
+            control.y,
+            control.x + control.width,
+            control.y + control.height,
+            radius,
+            _blend(self.theme.surface_alt, self.theme.border, 0.3),
+            _blend(self.theme.surface_alt, self.theme.border, 0.4),
+        )
+        fill_right = control.x + int(control.width * ratio)
+        if fill_right > control.x:
+            self._draw_round_rect(
+                device_context,
+                control.x,
+                control.y,
+                fill_right,
+                control.y + control.height,
+                radius,
+                accent,
+                accent,
+            )
+        if control.show_label:
+            text_rect = RECT(control.x, control.y - 22, control.x + control.width, control.y - 4)
+            self._draw_text(device_context, f"{int(ratio * 100)}%", text_rect, self.theme.text_secondary, "caption", DT_LEFT | DT_VCENTER)
+
+    def _draw_dropdown(self, device_context, control):
+        hover = control.hover_progress
+        fill = _blend(self.theme.surface, self.theme.surface_alt, 0.4 + 0.2 * hover)
+        border = _blend(self.theme.border, self.theme.accent, 0.05 + (0.4 if control.expanded else hover * 0.2))
+        self._draw_round_rect(
+            device_context,
+            control.x,
+            control.y,
+            control.x + control.width,
+            control.y + control.height,
+            8,
+            fill,
+            border,
+        )
+        display = control.selected if control.selected else control.placeholder
+        text_color = self.theme.text_primary if control.selected else _blend(self.theme.text_secondary, self.theme.surface_alt, 0.3)
+        text_rect = RECT(control.x + 14, control.y, control.x + control.width - 32, control.y + control.height)
+        self._draw_text(device_context, display, text_rect, text_color, "body", DT_LEFT | DT_VCENTER)
+        # Caret indicator
+        caret_rect = RECT(control.x + control.width - 28, control.y, control.x + control.width - 12, control.y + control.height)
+        caret_glyph = "˅" if not control.expanded else "˄"
+        self._draw_text(device_context, caret_glyph, caret_rect, self.theme.text_secondary, "body", DT_CENTER | DT_VCENTER)
+
+        if not control.expanded:
+            return
+
+        left, top, right, bottom = control.panel_rect()
+        self._draw_round_rect(
+            device_context,
+            left,
+            top,
+            right,
+            bottom,
+            10,
+            self.theme.surface,
+            _blend(self.theme.border, self.theme.accent, 0.2),
+        )
+        item_h = control.option_height()
+        for idx, option in enumerate(control.options):
+            row_top = top + 4 + idx * item_h
+            row_rect = RECT(left + 4, row_top, right - 4, row_top + item_h)
+            is_selected = option == control.selected
+            if is_selected:
+                self._draw_round_rect(
+                    device_context,
+                    left + 4,
+                    row_top,
+                    right - 4,
+                    row_top + item_h,
+                    6,
+                    _blend(self.theme.accent, self.theme.surface, 0.85),
+                    _blend(self.theme.accent, self.theme.surface, 0.85),
+                )
+            label_rect = RECT(left + 16, row_top, right - 16, row_top + item_h)
+            self._draw_text(device_context, option, label_rect, self.theme.text_primary, "body", DT_LEFT | DT_VCENTER)
+
     def _paint(self):
         paint_struct = PAINTSTRUCT()
         screen_dc = user32.BeginPaint(self.hwnd, ctypes.byref(paint_struct))
@@ -1182,6 +1890,30 @@ class Window:
             if self._is_control_visible(chart):
                 self._draw_chart(buffer_dc, chart)
 
+        for progress in self.progress_bars:
+            if self._is_control_visible(progress):
+                self._draw_progress(buffer_dc, progress)
+
+        for radio_group in self.radio_groups:
+            if self._is_control_visible(radio_group):
+                self._draw_radio_group(buffer_dc, radio_group)
+
+        for checkbox in self.checkboxes:
+            if self._is_control_visible(checkbox):
+                self._draw_checkbox(buffer_dc, checkbox)
+
+        for switch in self.switches:
+            if self._is_control_visible(switch):
+                self._draw_switch(buffer_dc, switch)
+
+        for slider in self.sliders:
+            if self._is_control_visible(slider):
+                self._draw_slider(buffer_dc, slider)
+
+        for text_input in self.text_inputs:
+            if self._is_control_visible(text_input):
+                self._draw_text_input(buffer_dc, text_input)
+
         for label in self.labels:
             if not self._is_control_visible(label):
                 continue
@@ -1216,6 +1948,11 @@ class Window:
             )
             text_rect = RECT(button.x + 12, button.y, button.x + button.width - 12, button.y + button.height)
             self._draw_text(buffer_dc, button.text, text_rect, text_color, "button", DT_CENTER | DT_VCENTER)
+
+        # Dropdowns paint last so collapsed headers + expanded popups overlay everything else.
+        for dropdown in self.dropdowns:
+            if self._is_control_visible(dropdown):
+                self._draw_dropdown(buffer_dc, dropdown)
 
         gdi32.BitBlt(screen_dc, 0, 0, width, height, buffer_dc, 0, 0, SRCCOPY)
         gdi32.SelectObject(buffer_dc, old_bitmap)
@@ -1346,6 +2083,70 @@ class Window:
         self._layout_tabs()
         self.invalidate()
         return self.tab_bar
+
+    def add_text_input(self, value="", placeholder="", x=24, y=24, width=240, height=36, on_change=None, on_submit=None, password=False, max_length=None, tab=None):
+        control = TextInput(
+            value=value, placeholder=placeholder, x=x, y=y, width=width, height=height,
+            on_change=on_change, on_submit=on_submit, password=password, max_length=max_length, tab=tab,
+            caret=len(value),
+        )
+        self.text_inputs.append(control)
+        self.invalidate()
+        return control
+
+    def add_checkbox(self, label="", checked=False, x=24, y=24, width=220, height=28, on_change=None, tab=None):
+        control = Checkbox(label=label, checked=checked, x=x, y=y, width=width, height=height, on_change=on_change, tab=tab)
+        self.checkboxes.append(control)
+        self.invalidate()
+        return control
+
+    def add_switch(self, label="", on=False, x=24, y=24, width=220, height=28, on_change=None, tab=None):
+        control = Switch(label=label, on=on, x=x, y=y, width=width, height=height, on_change=on_change, tab=tab)
+        self.switches.append(control)
+        self.invalidate()
+        return control
+
+    def add_radio_group(self, options, selected=None, x=24, y=24, width=240, item_height=28, on_change=None, tab=None):
+        normalized = []
+        for option in options:
+            if isinstance(option, RadioOption):
+                normalized.append(option)
+            elif isinstance(option, dict):
+                normalized.append(RadioOption(key=option.get("key", option.get("value", option.get("label", ""))), label=option.get("label", "")))
+            elif isinstance(option, tuple) and len(option) == 2:
+                normalized.append(RadioOption(key=option[0], label=option[1]))
+            else:
+                key = str(option)
+                normalized.append(RadioOption(key=key, label=key))
+        control = RadioGroup(options=normalized, selected=selected, x=x, y=y, width=width, item_height=item_height, on_change=on_change, tab=tab)
+        self.radio_groups.append(control)
+        self.invalidate()
+        return control
+
+    def add_slider(self, value=0.0, minimum=0.0, maximum=100.0, step=0.0, x=24, y=24, width=240, height=36, on_change=None, tab=None):
+        control = Slider(
+            value=max(minimum, min(maximum, value)),
+            minimum=minimum, maximum=maximum, step=step,
+            x=x, y=y, width=width, height=height, on_change=on_change, tab=tab,
+        )
+        self.sliders.append(control)
+        self.invalidate()
+        return control
+
+    def add_dropdown(self, options, selected=None, placeholder="Select...", x=24, y=24, width=240, height=36, on_change=None, tab=None):
+        control = Dropdown(
+            options=list(options), selected=selected, placeholder=placeholder,
+            x=x, y=y, width=width, height=height, on_change=on_change, tab=tab,
+        )
+        self.dropdowns.append(control)
+        self.invalidate()
+        return control
+
+    def add_progress_bar(self, value=0.0, x=24, y=24, width=240, height=8, accent=None, show_label=False, tab=None):
+        control = ProgressBar(value=value, x=x, y=y, width=width, height=height, accent=accent, show_label=show_label, tab=tab)
+        self.progress_bars.append(control)
+        self.invalidate()
+        return control
 
     def set_active_tab(self, tab_name):
         if self.tab_bar is None or tab_name == self.tab_bar.active_tab:
@@ -1551,3 +2352,38 @@ def set_theme(
         text_primary=text_primary,
         text_secondary=text_secondary,
     )
+
+
+def create_text_input(root, value="", placeholder="", x=24, y=24, width=240, height=36, on_change=None, on_submit=None, password=False, max_length=None, tab=None):
+    """Create a single-line text input."""
+    return root.add_text_input(value=value, placeholder=placeholder, x=x, y=y, width=width, height=height, on_change=on_change, on_submit=on_submit, password=password, max_length=max_length, tab=tab)
+
+
+def create_checkbox(root, label="", checked=False, x=24, y=24, width=220, height=28, on_change=None, tab=None):
+    """Create a checkbox toggle."""
+    return root.add_checkbox(label=label, checked=checked, x=x, y=y, width=width, height=height, on_change=on_change, tab=tab)
+
+
+def create_switch(root, label="", on=False, x=24, y=24, width=220, height=28, on_change=None, tab=None):
+    """Create a modern on/off switch."""
+    return root.add_switch(label=label, on=on, x=x, y=y, width=width, height=height, on_change=on_change, tab=tab)
+
+
+def create_radio_group(root, options, selected=None, x=24, y=24, width=240, item_height=28, on_change=None, tab=None):
+    """Create a radio button group with mutually-exclusive options."""
+    return root.add_radio_group(options=options, selected=selected, x=x, y=y, width=width, item_height=item_height, on_change=on_change, tab=tab)
+
+
+def create_slider(root, value=0.0, minimum=0.0, maximum=100.0, step=0.0, x=24, y=24, width=240, height=36, on_change=None, tab=None):
+    """Create a draggable numeric slider."""
+    return root.add_slider(value=value, minimum=minimum, maximum=maximum, step=step, x=x, y=y, width=width, height=height, on_change=on_change, tab=tab)
+
+
+def create_dropdown(root, options, selected=None, placeholder="Select...", x=24, y=24, width=240, height=36, on_change=None, tab=None):
+    """Create a dropdown / select control with a popup option list."""
+    return root.add_dropdown(options=options, selected=selected, placeholder=placeholder, x=x, y=y, width=width, height=height, on_change=on_change, tab=tab)
+
+
+def create_progress_bar(root, value=0.0, x=24, y=24, width=240, height=8, accent=None, show_label=False, tab=None):
+    """Create a non-interactive progress bar (value range 0.0 .. 1.0)."""
+    return root.add_progress_bar(value=value, x=x, y=y, width=width, height=height, accent=accent, show_label=show_label, tab=tab)

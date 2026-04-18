@@ -4,6 +4,14 @@ All notable changes to GUIpi26 are documented here. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Added
+- Form control suite: `create_text_input`, `create_checkbox`, `create_switch`, `create_radio_group`, `create_slider`, `create_dropdown`, `create_progress_bar`.
+- Keyboard input subsystem: `WM_CHAR` / `WM_KEYDOWN` handling, focus tracking, caret rendering, and `Tab` cycling between text inputs.
+- Slider drag interaction (`WM_LBUTTONDOWN` / `WM_MOUSEMOVE` / `WM_LBUTTONUP` capture) and tap-to-jump on the track.
+- Dropdown popup overlay with click-outside-to-dismiss.
+- `examples/forms/app.py` showcasing every form control wired to a live status panel.
+- `docs/forms.md` tutorial and an updated API reference.
+
 ## [0.1.0a1] - 2026-04-18
 
 First public preview.
