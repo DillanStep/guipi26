@@ -28,11 +28,15 @@ jobs:
           persist-credentials: false
 
       - name: Run analysis
-        uses: ossf/scorecard-action@v2.4.0
+        uses: ossf/scorecard-action@v2.4.2
         with:
           results_file: results.sarif
           results_format: sarif
-          publish_results: true
+          # publish_results requires OpenSSF allowlist / star threshold —
+          # disabled for now so the workflow itself succeeds. SARIF still
+          # uploads to GitHub code scanning, and the badge will populate
+          # from the next scheduled OpenSSF crawl.
+          publish_results: false
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
