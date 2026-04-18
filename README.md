@@ -101,6 +101,21 @@ python examples/dashboard.py
 python examples/enterprise/app.py
 ```
 
+### Screenshots
+
+<div align="center">
+
+**Northwind Analytics — Overview**
+<img src="docs/assets/screenshot-enterprise-overview.png" alt="Enterprise demo — Overview page with KPI cards and animated charts" width="900">
+
+**Northwind Analytics — Customers**
+<img src="docs/assets/screenshot-enterprise-customers.png" alt="Enterprise demo — Customers page with list and profile panel" width="900">
+
+**Form controls**
+<img src="docs/assets/screenshot-forms.png" alt="Forms example — text inputs, checkboxes, radios, sliders, dropdowns, animated progress" width="720">
+
+</div>
+
 ## Benchmarks
 
 GUIpi26 vs Tkinter — Windows 11, Python 3.9, 200 controls, median of 2 runs.
