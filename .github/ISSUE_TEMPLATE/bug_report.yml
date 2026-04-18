@@ -1,0 +1,57 @@
+name: Bug report
+description: Something is broken or behaves wrong.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file an issue. GUIpi26 is **Windows-only** and currently in **alpha** — breaking changes are expected.
+
+  - type: input
+    id: version
+    attributes:
+      label: GUIpi26 version
+      description: "Run `python -c \"import guipi26; print(guipi26.__version__)\"`"
+      placeholder: "0.1.0a1"
+    validations:
+      required: true
+
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+      placeholder: "3.12.2"
+    validations:
+      required: true
+
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      placeholder: "Windows 11 23H2"
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      description: A short code snippet that triggers the bug.
+      render: python
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened instead
+      description: Include any traceback or screenshot.
+    validations:
+      required: true

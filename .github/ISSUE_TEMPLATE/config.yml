@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://github.com/DillanStep/guipi26/tree/main/docs
+    about: Read the docs first — many questions are answered there.
