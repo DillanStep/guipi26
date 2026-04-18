@@ -4,7 +4,7 @@
 [![Security](https://github.com/DillanStep/guipi26/actions/workflows/security.yml/badge.svg)](https://github.com/DillanStep/guipi26/actions/workflows/security.yml)
 [![Guardian](https://github.com/DillanStep/guipi26/actions/workflows/guardian.yml/badge.svg)](https://github.com/DillanStep/guipi26/actions/workflows/guardian.yml)
 [![CodeQL](https://github.com/DillanStep/guipi26/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/DillanStep/guipi26/security/code-scanning)
-[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/DillanStep/guipi26/badge)](https://scorecard.dev/viewer/?uri=github.com/DillanStep/guipi26)
+[![OpenSSF Scorecard](https://img.shields.io/ossf-scorecard/github.com/DillanStep/guipi26?label=openssf%20scorecard)](https://scorecard.dev/viewer/?uri=github.com/DillanStep/guipi26)
 [![PyPI](https://img.shields.io/pypi/v/guipi26?include_prereleases)](https://pypi.org/project/guipi26/)
 [![Python](https://img.shields.io/pypi/pyversions/guipi26)](https://pypi.org/project/guipi26/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
