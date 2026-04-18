@@ -24,6 +24,7 @@ def _row(x, width, count, gap=16):
 
 def main():
     app = create_window("GUIpi26 Dashboard", 1200, 760)
+    app.set_min_size(960, 640)
     set_theme(app, background="#f5f6f8", surface="#ffffff", accent="#0d6efd")
 
     create_collapsible_nav_bar(
@@ -65,8 +66,8 @@ def main():
     grid_components = create_grid(app, ["Component", "Group", "Status"],
                                   [["Sidebar", "Shell", "Stable"], ["Panel", "Layout", "Stable"], ["Card", "Data", "Stable"], ["Chart", "Data", "Beta"]],
                                   x=0, y=200, width=0, row_height=38, tab="controls")
-    card_total = create_card(app, "Total", "12", x=0, y=200, width=0, height=104, subtitle="components", accent="#0d6efd", tab="controls")
-    card_beta = create_card(app, "Beta", "1", x=0, y=316, width=0, height=104, subtitle="not yet final", accent="#fd7e14", tab="controls")
+    card_total = create_card(app, "Total", "12", x=0, y=200, width=0, height=140, subtitle="components", accent="#0d6efd", tab="controls")
+    card_beta = create_card(app, "Beta", "1", x=0, y=360, width=0, height=140, subtitle="not yet final", accent="#fd7e14", tab="controls")
     btn_save = create_button(app, "Save", x=0, y=440, width=140, height=40, accent="#0d6efd", tab="controls")
     btn_cancel = create_button(app, "Cancel", x=0, y=440, width=140, height=40, background="#ffffff", border="#dee2e6", tab="controls")
 
@@ -112,7 +113,9 @@ def main():
         grid_components.x = col0[0]
         grid_components.width = col0[1] + col1[1] + 20
         card_total.x, card_total.width = col2
+        card_total.y = 200
         card_beta.x, card_beta.width = col2
+        card_beta.y = card_total.y + card_total.height + 20
         btn_save.x = col0[0]
         btn_cancel.x = col0[0] + 156
 

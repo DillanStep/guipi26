@@ -78,6 +78,7 @@ WM_MOUSELEAVE = 0x02A3
 WM_MOUSEMOVE = 0x0200
 WM_MOUSEWHEEL = 0x020A
 WM_PAINT = 0x000F
+WM_GETMINMAXINFO = 0x0024
 WM_SETCURSOR = 0x0020
 WM_SIZE = 0x0005
 WM_CHAR = 0x0102
@@ -245,6 +246,16 @@ class TRACKMOUSEEVENT(ctypes.Structure):
 
 class SIZE(ctypes.Structure):
     _fields_ = [("cx", wintypes.LONG), ("cy", wintypes.LONG)]
+
+
+class MINMAXINFO(ctypes.Structure):
+    _fields_ = [
+        ("ptReserved", POINT),
+        ("ptMaxSize", POINT),
+        ("ptMaxPosition", POINT),
+        ("ptMinTrackSize", POINT),
+        ("ptMaxTrackSize", POINT),
+    ]
 
 # -------------------------------------------------------------------------
 # WARNING: HERE BE DRAGONS (AND BY DRAGONS, WE MEAN THE WINDOWS API)
@@ -932,6 +943,8 @@ class Window:
         self._cursor_arrow = user32.LoadCursorW(None, _make_int_resource(IDC_ARROW))
         self._cursor_hand = user32.LoadCursorW(None, _make_int_resource(IDC_HAND))
         self._cursor_ibeam = user32.LoadCursorW(None, _make_int_resource(IDC_IBEAM))
+        self._min_width = 480
+        self._min_height = 360
         self._layout_callbacks = []
         self._last_layout_size = (0, 0)
         self._register_window_class()
@@ -1013,6 +1026,12 @@ class Window:
         if message == WM_SIZE:
             self._run_layout_callbacks()
             self.invalidate()
+            return 0
+
+        if message == WM_GETMINMAXINFO:
+            mmi = ctypes.cast(l_param, ctypes.POINTER(MINMAXINFO)).contents
+            mmi.ptMinTrackSize.x = self._min_width
+            mmi.ptMinTrackSize.y = self._min_height
             return 0
 
         if message == WM_MOUSEMOVE:
@@ -1766,6 +1785,11 @@ class Window:
         self._last_layout_size = (width, height)
         for callback in list(self._layout_callbacks):
             callback(width, height)
+
+    def set_min_size(self, width, height):
+        """Set the minimum window size (in pixels) the user can resize to."""
+        self._min_width = max(120, int(width))
+        self._min_height = max(80, int(height))
 
     def _resolve_card_overlaps(self, gap=12):
         """Push safety-on cards down so they don't overlap previously-placed cards."""

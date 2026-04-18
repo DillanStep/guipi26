@@ -24,6 +24,7 @@ MAX_FORM_WIDTH = 520
 
 def main():
     window = guipi26.create_window("GUIpi26 — Forms", 1080, 760)
+    window.set_min_size(720, 620)
     guipi26.set_theme(window, accent="#005fb8")
 
     title = guipi26.create_label(
@@ -40,7 +41,7 @@ def main():
     status_panel = guipi26.create_panel(
         window, title="Live state",
         x=0, y=0, width=RIGHT_PANEL_WIDTH, height=620,
-        subtitle="Interact with any control to see updates",
+        subtitle="Live values appear below",
     )
     status_lines = [
         guipi26.create_label(window, text="", x=0, y=0, width=RIGHT_PANEL_WIDTH - 40, height=22, style="body")

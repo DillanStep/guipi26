@@ -23,6 +23,7 @@ STATUS_BAR_H = 44
 
 def main():
     win = g.create_window("GUIpi26 — Win32 widgets showcase", 1120, 740)
+    win.set_min_size(900, 620)
 
     languages = ["Python", "Rust", "Go", "TypeScript", "C#", "Kotlin",
                  "Swift", "Ruby", "Elixir", "Zig", "C++", "Java",
@@ -199,13 +200,17 @@ def main():
         subtitle_label.width = width - PAD_X * 2
 
         sections_top = HEADER_TOP + HEADER_H + 4 + SUBHEADER_H + SECTION_TOP_GAP
-        sections_bottom = max(sections_top + 320, height - STATUS_BAR_H - 16)
+        # Reserve room for status bar + 12px breathing room
+        max_section_bottom = height - STATUS_BAR_H - 12
+        # Minimum panel height so controls always fit comfortably
+        min_section_h = 380
+        sections_bottom = max(sections_top + min_section_h, max_section_bottom)
         section_h = sections_bottom - sections_top
         body_top = sections_top + SECTION_BODY_TOP
 
-        # Status bar pinned bottom
+        # Status bar pinned just below the panels
         status_label.x = PAD_X
-        status_label.y = height - STATUS_BAR_H + 8
+        status_label.y = sections_bottom + 12
         status_label.width = width - PAD_X * 2
 
         # Column 1 — ListBox
@@ -217,7 +222,7 @@ def main():
         list_status.y = sections_top + section_h - 38
         list_box.x, list_box.width = body_x, body_w
         list_box.y = body_top
-        list_box.height = (list_status.y - body_top) - 12
+        list_box.height = max(80, (list_status.y - body_top) - 12)
 
         # Column 2 — TreeView
         tree_panel.x, tree_panel.y = col_xs[1], sections_top
@@ -228,19 +233,23 @@ def main():
         tree_status.y = sections_top + section_h - 38
         tree_view.x, tree_view.width = body_x, body_w
         tree_view.y = body_top
-        tree_view.height = (tree_status.y - body_top) - 12
+        tree_view.height = max(80, (tree_status.y - body_top) - 12)
 
-        # Column 3 — Dialog buttons
+        # Column 3 — Dialog buttons (vertically centered in panel body)
         dlg_panel.x, dlg_panel.y = col_xs[2], sections_top
         dlg_panel.width, dlg_panel.height = col_w, section_h
         body_w = col_w - SECTION_BODY_PAD * 2
         btn_w = min(240, body_w)
         btn_x = col_xs[2] + (col_w - btn_w) // 2
         btn_gap = 14
-        for index, btn in enumerate((btn_info, btn_warn, btn_err, btn_yn)):
+        btns = (btn_info, btn_warn, btn_err, btn_yn)
+        total_btn_h = btns[0].height * len(btns) + btn_gap * (len(btns) - 1)
+        body_avail_h = section_h - SECTION_BODY_TOP - 24
+        btn_y = body_top + max(0, (body_avail_h - total_btn_h) // 2)
+        for index, btn in enumerate(btns):
             btn.width = btn_w
             btn.x = btn_x
-            btn.y = body_top + index * (btn.height + btn_gap)
+            btn.y = btn_y + index * (btn.height + btn_gap)
 
     win.on_layout(relayout)
     relayout(*win.client_size())
