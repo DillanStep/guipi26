@@ -92,6 +92,10 @@ Full docs live in [`docs/`](docs/README.md):
 
 GUIpi26 vs Tkinter (Windows 11, Python 3.9, 200 controls, median of 2 runs):
 
+![Benchmark summary — GUIpi26 vs Tkinter](benchmarks/plots/summary.png)
+
+![Speedup factor over Tkinter](benchmarks/plots/speedup.png)
+
 | metric | GUIpi26 | Tkinter | winner |
 | --- | --- | --- | --- |
 | cold start | 101 ms | 1430 ms | **14.0x** GUIpi26 |
@@ -99,4 +103,4 @@ GUIpi26 vs Tkinter (Windows 11, Python 3.9, 200 controls, median of 2 runs):
 | paint avg | 21 ms | 32 ms | **1.5x** GUIpi26 |
 | sustainable FPS | 47.6 | 30.9 | **1.5x** GUIpi26 |
 
-Reproduce with `python benchmarks/run_all.py` — see [benchmarks/README.md](benchmarks/README.md) for methodology.
+Reproduce with `python benchmarks/run_all.py`, then regenerate the charts with `python benchmarks/plot_results.py`. See [benchmarks/README.md](benchmarks/README.md) for methodology.

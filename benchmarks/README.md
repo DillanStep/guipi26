@@ -16,6 +16,20 @@ python benchmarks/run_all.py --controls 400 --paints 200 --runs 5
 
 The runner spawns each benchmark in a fresh Python process (so cold-start times are real), takes the **median** across `--runs`, and writes raw results to `benchmarks/results.json`.
 
+## Plots
+
+After running the benchmarks, render PNG charts (used in the project README) with:
+
+```
+python benchmarks/plot_results.py
+```
+
+Output lands in `benchmarks/plots/`:
+
+- `summary.png` — 2x2 grid of all four metrics
+- `speedup.png` — relative speedup factor over Tkinter
+- `cold_start.png`, `create_controls.png`, `paint_time.png`, `fps.png` — individual charts
+
 ## What's measured
 
 The same logical UI is built in each library: a header label and `--controls` "card" widgets in a 10-wide grid (each card is a bordered surface with a small caption and a large value).
