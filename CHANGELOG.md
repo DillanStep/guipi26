@@ -5,6 +5,12 @@ All notable changes to GUIpi26 are documented here. The format follows [Keep a C
 ## [Unreleased]
 
 ### Added
+- Win32 widgets wave 1: `create_list_box`, `create_tree_view`, `create_menu_bar`, `create_accelerator`, and `show_message_box`.
+- Tooltip system — any control exposing a `tooltip="..."` parameter (currently `Button`, `ListBox`, `TreeView`) shows a delayed popup on hover. Backed by `WM_TIMER`.
+- Cursor management — hand pointer for clickable controls, I-beam for text inputs, arrow elsewhere. Backed by `WM_SETCURSOR`.
+- Mouse-wheel scrolling for `ListBox` and `TreeView` via `WM_MOUSEWHEEL`.
+- Keyboard accelerator system (`Ctrl` / `Shift` / `Alt` modifiers) checked before focused-input dispatch.
+- `examples/widgets/app.py` showcase and `docs/widgets.md` documentation.
 - Form control suite: `create_text_input`, `create_checkbox`, `create_switch`, `create_radio_group`, `create_slider`, `create_dropdown`, `create_progress_bar`.
 - Keyboard input subsystem: `WM_CHAR` / `WM_KEYDOWN` handling, focus tracking, caret rendering, and `Tab` cycling between text inputs.
 - Slider drag interaction (`WM_LBUTTONDOWN` / `WM_MOUSEMOVE` / `WM_LBUTTONUP` capture) and tap-to-jump on the track.

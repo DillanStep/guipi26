@@ -5,7 +5,7 @@ Created on Sat Apr 18 2026
 @author: dillan stephenson
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import ctypes
 from ctypes import wintypes
 from typing import List, Optional, Tuple
@@ -14,6 +14,25 @@ from typing import List, Optional, Tuple
 user32 = ctypes.WinDLL("user32", use_last_error=True)
 gdi32 = ctypes.WinDLL("gdi32", use_last_error=True)
 kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+
+# WARNING (Yes, this is the bit you don’t casually fiddle with)
+#
+# The definitions below map Python ctypes to the Win32 API.
+# In plain English: this is the low-level plumbing that keeps the window
+# behaving like a window instead of a small, unpredictable disaster.
+#
+# You are not directly poking memory with a stick, but you are close enough
+# that guessing values or “just trying something” may result in crashes,
+# graphical chaos, or the application quietly giving up on life.
+#
+# If everything is currently working, consider that a success and proceed
+# with caution. If you must make changes, do so with intent, understanding,
+# and ideally a backup (or at least a mild sense of regret prepared in advance).
+#
+# For additional APIs and constants, refer to the official Microsoft Win32
+# documentation and follow the patterns used below. Do not invent numbers.
+#
+# You have been warned. Carry on.
 
 HANDLE = wintypes.HANDLE
 LRESULT = ctypes.c_ssize_t
@@ -38,6 +57,7 @@ DEFAULT_PITCH = 0
 DT_CENTER = 0x00000001
 DT_END_ELLIPSIS = 0x00008000
 DT_LEFT = 0x00000000
+DT_RIGHT = 0x00000002
 DT_SINGLELINE = 0x00000020
 DT_VCENTER = 0x00000004
 FW_LIGHT = 300
@@ -56,10 +76,13 @@ WM_LBUTTONDOWN = 0x0201
 WM_LBUTTONUP = 0x0202
 WM_MOUSELEAVE = 0x02A3
 WM_MOUSEMOVE = 0x0200
+WM_MOUSEWHEEL = 0x020A
 WM_PAINT = 0x000F
+WM_SETCURSOR = 0x0020
 WM_SIZE = 0x0005
 WM_CHAR = 0x0102
 WM_KEYDOWN = 0x0100
+WM_TIMER = 0x0113
 WS_OVERLAPPEDWINDOW = 0x00CF0000
 WS_VISIBLE = 0x10000000
 
@@ -69,8 +92,40 @@ VK_RETURN = 0x0D
 VK_END = 0x23
 VK_HOME = 0x24
 VK_LEFT = 0x25
+VK_UP = 0x26
 VK_RIGHT = 0x27
+VK_DOWN = 0x28
 VK_DELETE = 0x2E
+
+# Cursor shape resource IDs (used with LoadCursorW(NULL, ...)).
+IDC_HAND = 32649
+IDC_IBEAM = 32513
+IDC_SIZEWE = 32644
+
+# MessageBox flag combinations
+MB_OK = 0x00000000
+MB_OKCANCEL = 0x00000001
+MB_YESNO = 0x00000004
+MB_YESNOCANCEL = 0x00000003
+MB_ICONINFORMATION = 0x00000040
+MB_ICONWARNING = 0x00000030
+MB_ICONERROR = 0x00000010
+MB_ICONQUESTION = 0x00000020
+IDOK = 1
+IDCANCEL = 2
+IDYES = 6
+IDNO = 7
+
+# Accelerator modifier bitmask used by GUIpi26 accelerators.
+MOD_CTRL = 0x01
+MOD_SHIFT = 0x02
+MOD_ALT = 0x04
+
+# Tooltip + caret blink timer IDs.
+TIMER_TOOLTIP = 0x701
+TIMER_CARET = 0x702
+TOOLTIP_DELAY_MS = 500
+CARET_BLINK_MS = 530
 
 
 def _rgb_to_colorref(color):
@@ -191,6 +246,49 @@ class TRACKMOUSEEVENT(ctypes.Structure):
 class SIZE(ctypes.Structure):
     _fields_ = [("cx", wintypes.LONG), ("cy", wintypes.LONG)]
 
+# -------------------------------------------------------------------------
+# WARNING: HERE BE DRAGONS (AND BY DRAGONS, WE MEAN THE WINDOWS API)
+#
+# The declarations below define argument and return types for a selection
+# of Win32 functions using ctypes. This is the layer where Python politely
+# asks Windows to do something, and Windows either complies… or immediately
+# falls over if we’ve asked incorrectly (partly becuase micrsoft forgot how to
+# make a decent os since xp)
+#
+# In essence, this is the contract between your code and the operating system.
+# If the types match what Windows expects, everything behaves. If they do not,
+# you may experience crashes, graphical nonsense, input issues, or the sort of
+# bugs that make you question your life choices.
+#
+# A few important points for the brave:
+#
+# - These are not arbitrary definitions. Every type and parameter order must
+#   match the official Win32 API exactly.
+# - “Close enough” is not a thing here. It either is correct, or it is broken.
+# - If something stops working after a change, this is an excellent place to
+#   start looking (after a cup of tea and a quiet moment).
+#
+# Functions covered here include:
+#   - Window creation and lifecycle (CreateWindowExW, DestroyWindow, ShowWindow)
+#   - Message loop handling (GetMessageW, DispatchMessageW, TranslateMessage)
+#   - Input and events (mouse, keyboard, timers)
+#   - Drawing and rendering (BeginPaint, EndPaint, DrawTextW, BitBlt)
+#   - GDI objects (fonts, brushes, pens, bitmaps)
+#
+# If you need to extend this:
+#   1. Look up the function in the official Microsoft Win32 documentation
+#   2. Copy the exact signature
+#   3. Map types carefully using ctypes/wintypes
+#   4. Do not improvise numbers or guess parameters
+#
+# If everything is working:
+#   Consider leaving this section entirely alone.
+#
+# If you absolutely must change it:
+#   Do so with intent, understanding, and ideally version control.
+#
+# You have been warned. Carry on.
+# -------------------------------------------------------------------------
 
 user32.BeginPaint.argtypes = [wintypes.HWND, ctypes.POINTER(PAINTSTRUCT)]
 user32.BeginPaint.restype = HDC
@@ -232,6 +330,14 @@ user32.GetDC.argtypes = [wintypes.HWND]
 user32.GetDC.restype = HDC
 user32.GetMessageW.argtypes = [ctypes.POINTER(MSG), wintypes.HWND, wintypes.UINT, wintypes.UINT]
 user32.GetMessageW.restype = wintypes.BOOL
+user32.MessageBoxW.argtypes = [wintypes.HWND, wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.UINT]
+user32.MessageBoxW.restype = ctypes.c_int
+user32.SetCursor.argtypes = [HCURSOR]
+user32.SetCursor.restype = HCURSOR
+user32.GetKeyState.argtypes = [ctypes.c_int]
+user32.GetKeyState.restype = ctypes.c_short
+kernel32.GetTickCount.restype = wintypes.DWORD
+kernel32.GetTickCount.argtypes = []
 user32.InvalidateRect.argtypes = [wintypes.HWND, ctypes.POINTER(RECT), wintypes.BOOL]
 user32.InvalidateRect.restype = wintypes.BOOL
 user32.IsWindow.argtypes = [wintypes.HWND]
@@ -346,6 +452,7 @@ class Button:
     border: Optional[str] = None
     accent: Optional[str] = None
     tab: Optional[str] = None
+    tooltip: Optional[str] = None
     hover_progress: float = 0.0
     hover_target: float = 0.0
 
@@ -675,6 +782,107 @@ class ProgressBar:
     tab: Optional[str] = None
 
 
+@dataclass
+class ListBox:
+    items: List[str]
+    selected_index: int = -1
+    x: int = 24
+    y: int = 24
+    width: int = 280
+    height: int = 220
+    item_height: int = 28
+    scroll_offset: int = 0  # row index at top of viewport
+    on_change: object = None
+    tab: Optional[str] = None
+    tooltip: Optional[str] = None
+
+    def visible_rows(self):
+        return max(1, (self.height - 8) // self.item_height)
+
+    def max_offset(self):
+        return max(0, len(self.items) - self.visible_rows())
+
+    def contains(self, x_pos, y_pos):
+        return _rect_contains(self.x, self.y, self.x + self.width, self.y + self.height, x_pos, y_pos)
+
+    def hit_index(self, y_pos):
+        local_y = y_pos - self.y - 4
+        if local_y < 0:
+            return -1
+        index = self.scroll_offset + (local_y // self.item_height)
+        if 0 <= index < len(self.items):
+            return int(index)
+        return -1
+
+
+@dataclass
+class TreeNode:
+    label: str
+    key: Optional[str] = None
+    children: List["TreeNode"] = field(default_factory=list)
+    expanded: bool = True
+
+
+@dataclass
+class TreeView:
+    nodes: List[TreeNode]
+    selected_key: Optional[str] = None
+    x: int = 24
+    y: int = 24
+    width: int = 300
+    height: int = 280
+    row_height: int = 26
+    on_select: object = None
+    tab: Optional[str] = None
+    tooltip: Optional[str] = None
+    # Cached flat layout: list of (node, depth, row_rect_top, has_children)
+    _flat: List = field(default_factory=list, repr=False)
+
+    def contains(self, x_pos, y_pos):
+        return _rect_contains(self.x, self.y, self.x + self.width, self.y + self.height, x_pos, y_pos)
+
+
+@dataclass
+class MenuItem:
+    label: str
+    command: object = None
+    shortcut: Optional[str] = None  # e.g. "Ctrl+S" — display only
+
+
+@dataclass
+class Menu:
+    title: str
+    items: List[MenuItem]
+
+
+@dataclass
+class MenuBar:
+    menus: List[Menu]
+    x: int = 0
+    y: int = 0
+    height: int = 36
+    open_index: int = -1
+    hovered_index: int = -1
+
+
+@dataclass
+class Tooltip:
+    """Internal: a transient popup attached to whichever control is hovered."""
+    text: str = ""
+    x: int = 0
+    y: int = 0
+    visible: bool = False
+
+
+@dataclass
+class Accelerator:
+    """Keyboard shortcut registration (e.g. Ctrl+S)."""
+    vk: int
+    modifiers: int  # bitmask of MOD_CTRL / MOD_SHIFT / MOD_ALT
+    callback: object
+    description: Optional[str] = None
+
+
 class Window:
     """A Windows-native custom-rendered GUI surface for GUIpi26."""
 
@@ -703,6 +911,9 @@ class Window:
         self.sliders = []
         self.dropdowns = []
         self.progress_bars = []
+        self.list_boxes = []
+        self.tree_views = []
+        self.menu_bar = None
         self.tab_bar = None
         self._font_cache = {}
         self._tracking_mouse = False
@@ -711,6 +922,16 @@ class Window:
         self._hovered_form = None
         self._focused_input = None
         self._dragging_slider = None
+        self._tooltip = Tooltip()
+        self._tooltip_target = None
+        self._tooltip_pending_at = 0
+        self._tooltip_timer_set = False
+        self._mouse_x = -1
+        self._mouse_y = -1
+        self._accelerators = []
+        self._cursor_arrow = user32.LoadCursorW(None, _make_int_resource(IDC_ARROW))
+        self._cursor_hand = user32.LoadCursorW(None, _make_int_resource(IDC_HAND))
+        self._cursor_ibeam = user32.LoadCursorW(None, _make_int_resource(IDC_IBEAM))
         self._layout_callbacks = []
         self._last_layout_size = (0, 0)
         self._register_window_class()
@@ -797,6 +1018,7 @@ class Window:
         if message == WM_MOUSEMOVE:
             self._track_mouse_leave()
             x_pos, y_pos = _get_x_lparam(l_param), _get_y_lparam(l_param)
+            self._mouse_x, self._mouse_y = x_pos, y_pos
             if self._dragging_slider is not None:
                 self._update_slider_drag(x_pos)
                 return 0
@@ -805,8 +1027,21 @@ class Window:
 
         if message == WM_MOUSELEAVE:
             self._tracking_mouse = False
+            self._mouse_x = self._mouse_y = -1
+            self._hide_tooltip()
             self._update_hover_state(-1, -1)
             return 0
+
+        if message == WM_MOUSEWHEEL:
+            delta = ctypes.c_short((w_param >> 16) & 0xFFFF).value
+            self._handle_mouse_wheel(delta)
+            return 0
+
+        if message == WM_SETCURSOR:
+            # Only override cursor inside the client area (LOWORD == HTCLIENT == 1).
+            if (l_param & 0xFFFF) == 1 and self._apply_cursor():
+                return 1
+            return None
 
         if message == WM_LBUTTONDOWN:
             self._handle_press(_get_x_lparam(l_param), _get_y_lparam(l_param))
@@ -822,8 +1057,18 @@ class Window:
                 return 0
 
         if message == WM_KEYDOWN:
+            if self._dispatch_accelerator(int(w_param)):
+                return 0
             if self._focused_input is not None:
                 self._handle_text_key(w_param)
+                return 0
+            # Allow tree/list keyboard nav even without focused input.
+            if self._handle_navigation_key(int(w_param)):
+                return 0
+
+        if message == WM_TIMER:
+            if int(w_param) == TIMER_TOOLTIP:
+                self._on_tooltip_timer()
                 return 0
 
         return None
@@ -901,6 +1146,21 @@ class Window:
                 control.hover_target = 1.0 if control is hovered_form else 0.0
                 control.hover_progress = control.hover_target
 
+        # ListBox + TreeView hover (no per-row animation, just identity).
+        for lb in self.list_boxes:
+            if hovered_form is None and self._is_control_visible(lb) and lb.contains(x_pos, y_pos):
+                hovered_form = lb
+        for tv in self.tree_views:
+            if hovered_form is None and self._is_control_visible(tv) and tv.contains(x_pos, y_pos):
+                hovered_form = tv
+
+        # MenuBar hover
+        if self.menu_bar is not None:
+            new_hover = self._menubar_hit(x_pos, y_pos)
+            if new_hover != self.menu_bar.hovered_index:
+                self.menu_bar.hovered_index = new_hover
+                self.invalidate()
+
         if self.tab_bar is not None:
             for item in self.tab_bar.tabs:
                 if item.contains(self.tab_bar, x_pos, y_pos):
@@ -917,6 +1177,198 @@ class Window:
             self._hovered_tab = hovered_tab
             self._hovered_form = hovered_form
             self.invalidate()
+
+        self._maybe_schedule_tooltip()
+        # Force cursor refresh — Windows caches WM_SETCURSOR result, so push it ourselves.
+        self._apply_cursor()
+
+    # ------------------------------------------------------------------
+    # Cursor management
+    # ------------------------------------------------------------------
+    def _desired_cursor(self):
+        if self._hovered_button is not None or self._hovered_tab is not None:
+            return self._cursor_hand
+        target = self._hovered_form
+        if target is None:
+            return self._cursor_arrow
+        if isinstance(target, TextInput):
+            return self._cursor_ibeam
+        # Checkbox, Switch, Slider, Dropdown, ListBox, TreeView -> hand
+        return self._cursor_hand
+
+    def _apply_cursor(self):
+        cursor = self._desired_cursor()
+        if cursor:
+            user32.SetCursor(cursor)
+            return True
+        return False
+
+    # ------------------------------------------------------------------
+    # Tooltips
+    # ------------------------------------------------------------------
+    def _hovered_tooltip_target(self):
+        candidates = (self._hovered_button, self._hovered_form)
+        for c in candidates:
+            if c is None:
+                continue
+            text = getattr(c, "tooltip", None)
+            if text:
+                return c, text
+        return None, None
+
+    def _maybe_schedule_tooltip(self):
+        target, text = self._hovered_tooltip_target()
+        if target is None:
+            self._hide_tooltip()
+            self._tooltip_target = None
+            return
+        if target is self._tooltip_target and self._tooltip.visible:
+            # Move follow-cursor tooltip with the mouse.
+            self._tooltip.x = self._mouse_x + 14
+            self._tooltip.y = self._mouse_y + 20
+            self.invalidate()
+            return
+        if target is not self._tooltip_target:
+            self._tooltip_target = target
+            self._tooltip.visible = False
+            self._tooltip.text = text
+            user32.SetTimer(self.hwnd, TIMER_TOOLTIP, TOOLTIP_DELAY_MS, None)
+            self._tooltip_timer_set = True
+
+    def _on_tooltip_timer(self):
+        # One-shot timer.
+        user32.KillTimer(self.hwnd, TIMER_TOOLTIP)
+        self._tooltip_timer_set = False
+        target, text = self._hovered_tooltip_target()
+        if target is None or target is not self._tooltip_target:
+            return
+        self._tooltip.text = text
+        self._tooltip.x = self._mouse_x + 14
+        self._tooltip.y = self._mouse_y + 20
+        self._tooltip.visible = True
+        self.invalidate()
+
+    def _hide_tooltip(self):
+        if self._tooltip_timer_set:
+            user32.KillTimer(self.hwnd, TIMER_TOOLTIP)
+            self._tooltip_timer_set = False
+        if self._tooltip.visible:
+            self._tooltip.visible = False
+            self.invalidate()
+
+    # ------------------------------------------------------------------
+    # Mouse wheel — currently scrolls the hovered list box / tree view
+    # ------------------------------------------------------------------
+    def _handle_mouse_wheel(self, delta):
+        # delta is 120 per notch; positive = scroll up.
+        steps = -1 if delta < 0 else 1
+        rows = abs(delta) // 120 or 1
+        for lb in self.list_boxes:
+            if not self._is_control_visible(lb):
+                continue
+            if lb.contains(self._mouse_x, self._mouse_y):
+                new_offset = max(0, min(lb.max_offset(), lb.scroll_offset + steps * rows))
+                if new_offset != lb.scroll_offset:
+                    lb.scroll_offset = new_offset
+                    self.invalidate()
+                return
+        for tv in self.tree_views:
+            if not self._is_control_visible(tv):
+                continue
+            if tv.contains(self._mouse_x, self._mouse_y):
+                # Trees scroll by mutating an offset stored on the tree.
+                tv.scroll_offset = max(0, getattr(tv, "scroll_offset", 0) - steps * rows)
+                self.invalidate()
+                return
+
+    # ------------------------------------------------------------------
+    # Keyboard accelerators
+    # ------------------------------------------------------------------
+    def _current_modifiers(self):
+        mods = 0
+        if user32.GetKeyState(0x11) & 0x8000:  # VK_CONTROL
+            mods |= MOD_CTRL
+        if user32.GetKeyState(0x10) & 0x8000:  # VK_SHIFT
+            mods |= MOD_SHIFT
+        if user32.GetKeyState(0x12) & 0x8000:  # VK_MENU (Alt)
+            mods |= MOD_ALT
+        return mods
+
+    def _dispatch_accelerator(self, vk):
+        if not self._accelerators:
+            return False
+        mods = self._current_modifiers()
+        for acc in self._accelerators:
+            if acc.vk == vk and acc.modifiers == mods:
+                if acc.callback is not None:
+                    acc.callback()
+                return True
+        return False
+
+    def _handle_navigation_key(self, vk):
+        # Up/Down arrow scrolls the list box that has focus-by-hover.
+        for lb in self.list_boxes:
+            if not self._is_control_visible(lb):
+                continue
+            if not lb.contains(self._mouse_x, self._mouse_y):
+                continue
+            if vk == VK_UP and lb.selected_index > 0:
+                lb.selected_index -= 1
+                self._ensure_listbox_visible(lb)
+                if lb.on_change:
+                    lb.on_change(lb.selected_index)
+                self.invalidate()
+                return True
+            if vk == VK_DOWN and lb.selected_index < len(lb.items) - 1:
+                lb.selected_index += 1
+                self._ensure_listbox_visible(lb)
+                if lb.on_change:
+                    lb.on_change(lb.selected_index)
+                self.invalidate()
+                return True
+        return False
+
+    def _ensure_listbox_visible(self, lb):
+        if lb.selected_index < lb.scroll_offset:
+            lb.scroll_offset = lb.selected_index
+        elif lb.selected_index >= lb.scroll_offset + lb.visible_rows():
+            lb.scroll_offset = lb.selected_index - lb.visible_rows() + 1
+        lb.scroll_offset = max(0, min(lb.max_offset(), lb.scroll_offset))
+
+    # ------------------------------------------------------------------
+    # MenuBar hit-testing
+    # ------------------------------------------------------------------
+    def _menubar_hit(self, x_pos, y_pos):
+        if self.menu_bar is None:
+            return -1
+        bar = self.menu_bar
+        if not (bar.x <= x_pos <= bar.x + self._client_size()[0] and bar.y <= y_pos <= bar.y + bar.height):
+            return -1
+        cursor = bar.x + 12
+        for index, menu in enumerate(bar.menus):
+            w = self._menu_title_width(menu.title)
+            if cursor <= x_pos <= cursor + w:
+                return index
+            cursor += w
+        return -1
+
+    def _menu_title_width(self, title):
+        return max(60, len(title) * 8 + 24)
+
+    def _menu_panel_rect(self, index):
+        bar = self.menu_bar
+        if bar is None or not (0 <= index < len(bar.menus)):
+            return None
+        cursor = bar.x + 12
+        for i, menu in enumerate(bar.menus):
+            w = self._menu_title_width(menu.title)
+            if i == index:
+                items = menu.items
+                panel_w = 220
+                panel_h = 8 + len(items) * 30
+                return cursor, bar.y + bar.height, cursor + panel_w, bar.y + bar.height + panel_h
+            cursor += w
+        return None
 
     def _handle_press(self, x_pos, y_pos):
         # Slider drag-start has priority so the handle starts moving immediately.
@@ -1021,6 +1473,32 @@ class Window:
             self.invalidate()
             return
 
+        # Open menu panel owns the next click.
+        if self.menu_bar is not None and self.menu_bar.open_index >= 0:
+            panel = self._menu_panel_rect(self.menu_bar.open_index)
+            if panel is not None and _rect_contains(panel[0], panel[1], panel[2], panel[3], x_pos, y_pos):
+                items = self.menu_bar.menus[self.menu_bar.open_index].items
+                local_y = y_pos - panel[1] - 4
+                idx = local_y // 30
+                if 0 <= idx < len(items):
+                    item = items[int(idx)]
+                    self.menu_bar.open_index = -1
+                    self.invalidate()
+                    if item.command is not None:
+                        item.command()
+                    return
+            # Click outside open panel — close it and continue dispatch.
+            self.menu_bar.open_index = -1
+            self.invalidate()
+
+        # MenuBar title click toggles its panel.
+        if self.menu_bar is not None:
+            hit = self._menubar_hit(x_pos, y_pos)
+            if hit >= 0:
+                self.menu_bar.open_index = -1 if self.menu_bar.open_index == hit else hit
+                self.invalidate()
+                return
+
         # Expanded dropdown owns the next click: select an option, toggle, or collapse.
         for dropdown in self.dropdowns:
             if not dropdown.expanded or not self._is_control_visible(dropdown):
@@ -1121,6 +1599,28 @@ class Window:
                 self.invalidate()
                 return
 
+        # ListBox row selection
+        for lb in self.list_boxes:
+            if not self._is_control_visible(lb):
+                continue
+            if lb.contains(x_pos, y_pos):
+                index = lb.hit_index(y_pos)
+                if index >= 0 and index != lb.selected_index:
+                    lb.selected_index = index
+                    if lb.on_change is not None:
+                        lb.on_change(index)
+                    self._set_focused_input(None)
+                    self.invalidate()
+                return
+
+        # TreeView node toggle / select
+        for tv in self.tree_views:
+            if not self._is_control_visible(tv):
+                continue
+            if tv.contains(x_pos, y_pos):
+                self._handle_treeview_click(tv, x_pos, y_pos)
+                return
+
         for button in reversed(self.buttons):
             if self._is_control_visible(button) and button.contains(x_pos, y_pos):
                 if button.command is not None:
@@ -1131,6 +1631,39 @@ class Window:
 
         # Click landed on empty space — drop focus.
         self._set_focused_input(None)
+
+    def _flatten_tree(self, tv):
+        result = []
+
+        def walk(node, depth):
+            has_children = bool(node.children)
+            result.append((node, depth, has_children))
+            if node.expanded:
+                for child in node.children:
+                    walk(child, depth + 1)
+
+        for root in tv.nodes:
+            walk(root, 0)
+        return result
+
+    def _handle_treeview_click(self, tv, x_pos, y_pos):
+        flat = self._flatten_tree(tv)
+        scroll = getattr(tv, "scroll_offset", 0)
+        local_y = y_pos - tv.y - 4
+        if local_y < 0:
+            return
+        index = scroll + (local_y // tv.row_height)
+        if not (0 <= index < len(flat)):
+            return
+        node, depth, has_children = flat[int(index)]
+        chevron_left = tv.x + 8 + depth * 18
+        if has_children and chevron_left <= x_pos <= chevron_left + 22:
+            node.expanded = not node.expanded
+        else:
+            tv.selected_key = node.key if node.key is not None else node.label
+            if tv.on_select is not None:
+                tv.on_select(node)
+        self.invalidate()
 
     def _layout_tabs(self):
         if self.tab_bar is None:
@@ -1788,6 +2321,139 @@ class Window:
             label_rect = RECT(left + 16, row_top, right - 16, row_top + item_h)
             self._draw_text(device_context, option, label_rect, self.theme.text_primary, "body", DT_LEFT | DT_VCENTER)
 
+    def _draw_listbox(self, dc, lb):
+        self._draw_round_rect(
+            dc, lb.x, lb.y, lb.x + lb.width, lb.y + lb.height,
+            10, self.theme.surface, self.theme.border,
+        )
+        rows = lb.visible_rows()
+        item_h = lb.item_height
+        for offset in range(rows):
+            index = lb.scroll_offset + offset
+            if index >= len(lb.items):
+                break
+            row_top = lb.y + 4 + offset * item_h
+            row_left = lb.x + 4
+            row_right = lb.x + lb.width - 4
+            if index == lb.selected_index:
+                self._draw_round_rect(
+                    dc, row_left, row_top, row_right, row_top + item_h - 2, 6,
+                    _blend(self.theme.accent, self.theme.surface, 0.82),
+                    _blend(self.theme.accent, self.theme.surface, 0.82),
+                )
+            label_rect = RECT(row_left + 12, row_top, row_right - 12, row_top + item_h)
+            self._draw_text(dc, str(lb.items[index]), label_rect, self.theme.text_primary, "body", DT_LEFT | DT_VCENTER)
+
+        # Scroll indicator
+        if lb.max_offset() > 0:
+            track_x = lb.x + lb.width - 6
+            track_top = lb.y + 6
+            track_bottom = lb.y + lb.height - 6
+            track_h = max(1, track_bottom - track_top)
+            self._fill_rect(dc, track_x, track_top, track_x + 3, track_bottom,
+                            _blend(self.theme.border, self.theme.surface, 0.3))
+            visible_ratio = rows / max(1, len(lb.items))
+            thumb_h = max(20, int(track_h * visible_ratio))
+            thumb_top = track_top + int((track_h - thumb_h) * (lb.scroll_offset / max(1, lb.max_offset())))
+            self._draw_round_rect(
+                dc, track_x - 1, thumb_top, track_x + 4, thumb_top + thumb_h, 2,
+                self.theme.accent, self.theme.accent,
+            )
+
+    def _draw_treeview(self, dc, tv):
+        self._draw_round_rect(
+            dc, tv.x, tv.y, tv.x + tv.width, tv.y + tv.height,
+            10, self.theme.surface, self.theme.border,
+        )
+        flat = self._flatten_tree(tv)
+        scroll = getattr(tv, "scroll_offset", 0)
+        visible = max(1, (tv.height - 8) // tv.row_height)
+        scroll = max(0, min(max(0, len(flat) - visible), scroll))
+        tv.scroll_offset = scroll
+        for offset in range(visible):
+            index = scroll + offset
+            if index >= len(flat):
+                break
+            node, depth, has_children = flat[index]
+            row_top = tv.y + 4 + offset * tv.row_height
+            row_left = tv.x + 4
+            row_right = tv.x + tv.width - 4
+            key_value = node.key if node.key is not None else node.label
+            if tv.selected_key == key_value:
+                self._draw_round_rect(
+                    dc, row_left, row_top, row_right, row_top + tv.row_height - 2, 5,
+                    _blend(self.theme.accent, self.theme.surface, 0.82),
+                    _blend(self.theme.accent, self.theme.surface, 0.82),
+                )
+            chevron_x = tv.x + 8 + depth * 18
+            if has_children:
+                glyph = "▾" if node.expanded else "▸"
+                chev_rect = RECT(chevron_x, row_top, chevron_x + 18, row_top + tv.row_height)
+                self._draw_text(dc, glyph, chev_rect, self.theme.text_secondary, "body", DT_LEFT | DT_VCENTER)
+            label_rect = RECT(chevron_x + 22, row_top, row_right - 8, row_top + tv.row_height)
+            self._draw_text(dc, node.label, label_rect, self.theme.text_primary, "body", DT_LEFT | DT_VCENTER)
+
+    def _draw_menubar(self, dc, width):
+        bar = self.menu_bar
+        self._fill_rect(
+            dc, bar.x, bar.y, bar.x + width, bar.y + bar.height,
+            _blend(self.theme.surface_alt, self.theme.surface, 0.5),
+        )
+        self._fill_rect(
+            dc, bar.x, bar.y + bar.height - 1, bar.x + width, bar.y + bar.height,
+            self.theme.border,
+        )
+        cursor = bar.x + 12
+        for index, menu in enumerate(bar.menus):
+            w = self._menu_title_width(menu.title)
+            is_open = index == bar.open_index
+            is_hover = index == bar.hovered_index
+            if is_open or is_hover:
+                fill = _blend(self.theme.accent, self.theme.surface, 0.85 if is_hover and not is_open else 0.7)
+                self._draw_round_rect(
+                    dc, cursor + 2, bar.y + 4, cursor + w - 2, bar.y + bar.height - 6, 5, fill, fill,
+                )
+            text_color = self.theme.text_primary
+            r = RECT(cursor, bar.y, cursor + w, bar.y + bar.height)
+            self._draw_text(dc, menu.title, r, text_color, "button", DT_CENTER | DT_VCENTER)
+            cursor += w
+
+        # Open dropdown panel
+        if bar.open_index >= 0:
+            panel = self._menu_panel_rect(bar.open_index)
+            if panel is not None:
+                left, top, right, bottom = panel
+                self._draw_round_rect(
+                    dc, left, top, right, bottom, 10, self.theme.surface,
+                    _blend(self.theme.border, self.theme.accent, 0.2),
+                )
+                items = bar.menus[bar.open_index].items
+                for idx, item in enumerate(items):
+                    row_top = top + 4 + idx * 30
+                    label_rect = RECT(left + 14, row_top, right - 80, row_top + 30)
+                    self._draw_text(dc, item.label, label_rect, self.theme.text_primary, "body", DT_LEFT | DT_VCENTER)
+                    if item.shortcut:
+                        sc_rect = RECT(right - 80, row_top, right - 12, row_top + 30)
+                        self._draw_text(dc, item.shortcut, sc_rect, self.theme.text_secondary, "body", DT_RIGHT | DT_VCENTER)
+
+    def _draw_tooltip(self, dc, tooltip, screen_w, screen_h):
+        text = tooltip.text
+        # Approximate tooltip width via measured text.
+        font = self._get_font("body")
+        old_font = gdi32.SelectObject(dc, font)
+        size = SIZE()
+        gdi32.GetTextExtentPoint32W(dc, text, len(text), ctypes.byref(size))
+        gdi32.SelectObject(dc, old_font)
+        pad_x, pad_y = 12, 8
+        w = size.cx + pad_x * 2
+        h = size.cy + pad_y * 2
+        x = max(8, min(tooltip.x, screen_w - w - 8))
+        y = max(8, min(tooltip.y, screen_h - h - 8))
+        bg = _blend(self.theme.text_primary, "#000000", 0.05)
+        self._draw_round_rect(dc, x, y, x + w, y + h, 6, bg, bg)
+        rect = RECT(x + pad_x, y, x + w - pad_x, y + h)
+        self._draw_text(dc, text, rect, "#ffffff", "body", DT_LEFT | DT_VCENTER)
+
     def _paint(self):
         paint_struct = PAINTSTRUCT()
         screen_dc = user32.BeginPaint(self.hwnd, ctypes.byref(paint_struct))
@@ -1954,6 +2620,20 @@ class Window:
             if self._is_control_visible(dropdown):
                 self._draw_dropdown(buffer_dc, dropdown)
 
+        for lb in self.list_boxes:
+            if self._is_control_visible(lb):
+                self._draw_listbox(buffer_dc, lb)
+
+        for tv in self.tree_views:
+            if self._is_control_visible(tv):
+                self._draw_treeview(buffer_dc, tv)
+
+        if self.menu_bar is not None:
+            self._draw_menubar(buffer_dc, width)
+
+        if self._tooltip.visible and self._tooltip.text:
+            self._draw_tooltip(buffer_dc, self._tooltip, width, height)
+
         gdi32.BitBlt(screen_dc, 0, 0, width, height, buffer_dc, 0, 0, SRCCOPY)
         gdi32.SelectObject(buffer_dc, old_bitmap)
         gdi32.DeleteObject(buffer_bitmap)
@@ -2058,6 +2738,7 @@ class Window:
         border=None,
         accent=None,
         tab=None,
+        tooltip=None,
     ):
         button = Button(
             text=text,
@@ -2071,6 +2752,7 @@ class Window:
             border=border,
             accent=accent,
             tab=tab,
+            tooltip=tooltip,
         )
         self.buttons.append(button)
         self.invalidate()
@@ -2147,6 +2829,113 @@ class Window:
         self.progress_bars.append(control)
         self.invalidate()
         return control
+
+    def add_list_box(self, items, selected_index=-1, x=24, y=24, width=280, height=220,
+                     item_height=28, on_change=None, tab=None, tooltip=None):
+        control = ListBox(
+            items=list(items), selected_index=selected_index, x=x, y=y, width=width, height=height,
+            item_height=item_height, on_change=on_change, tab=tab, tooltip=tooltip,
+        )
+        self.list_boxes.append(control)
+        self.invalidate()
+        return control
+
+    def add_tree_view(self, nodes, selected_key=None, x=24, y=24, width=300, height=280,
+                      row_height=26, on_select=None, tab=None, tooltip=None):
+        normalized = [self._normalize_tree_node(n) for n in nodes]
+        control = TreeView(
+            nodes=normalized, selected_key=selected_key, x=x, y=y, width=width, height=height,
+            row_height=row_height, on_select=on_select, tab=tab, tooltip=tooltip,
+        )
+        control.scroll_offset = 0
+        self.tree_views.append(control)
+        self.invalidate()
+        return control
+
+    def _normalize_tree_node(self, node):
+        if isinstance(node, TreeNode):
+            node.children = [self._normalize_tree_node(c) for c in node.children]
+            return node
+        if isinstance(node, dict):
+            return TreeNode(
+                label=node.get("label", ""),
+                key=node.get("key"),
+                children=[self._normalize_tree_node(c) for c in node.get("children", [])],
+                expanded=node.get("expanded", True),
+            )
+        if isinstance(node, str):
+            return TreeNode(label=node, key=node)
+        if isinstance(node, tuple):
+            label = node[0]
+            children = node[1] if len(node) > 1 else []
+            return TreeNode(label=label, key=label,
+                            children=[self._normalize_tree_node(c) for c in children])
+        raise TypeError(f"Unsupported tree node type: {type(node)!r}")
+
+    def add_menu_bar(self, menus, x=0, y=0, height=36):
+        norm_menus = []
+        for entry in menus:
+            if isinstance(entry, Menu):
+                norm_menus.append(entry)
+                continue
+            if isinstance(entry, tuple):
+                title, items = entry[0], entry[1]
+            elif isinstance(entry, dict):
+                title, items = entry.get("title", ""), entry.get("items", [])
+            else:
+                raise TypeError(f"Unsupported menu entry type: {type(entry)!r}")
+            norm_items = []
+            for item in items:
+                if isinstance(item, MenuItem):
+                    norm_items.append(item)
+                elif isinstance(item, dict):
+                    norm_items.append(MenuItem(
+                        label=item.get("label", ""),
+                        command=item.get("command"),
+                        shortcut=item.get("shortcut"),
+                    ))
+                elif isinstance(item, tuple):
+                    norm_items.append(MenuItem(
+                        label=item[0],
+                        command=item[1] if len(item) > 1 else None,
+                        shortcut=item[2] if len(item) > 2 else None,
+                    ))
+                elif isinstance(item, str):
+                    norm_items.append(MenuItem(label=item))
+                else:
+                    raise TypeError(f"Unsupported menu item: {type(item)!r}")
+            norm_menus.append(Menu(title=title, items=norm_items))
+        self.menu_bar = MenuBar(menus=norm_menus, x=x, y=y, height=height)
+        self.invalidate()
+        return self.menu_bar
+
+    def add_accelerator(self, key, callback, ctrl=False, shift=False, alt=False, description=None):
+        """Register a keyboard shortcut. ``key`` is a virtual-key code or a single character."""
+        if isinstance(key, str) and len(key) == 1:
+            vk = ord(key.upper())
+        else:
+            vk = int(key)
+        modifiers = (MOD_CTRL if ctrl else 0) | (MOD_SHIFT if shift else 0) | (MOD_ALT if alt else 0)
+        acc = Accelerator(vk=vk, modifiers=modifiers, callback=callback, description=description)
+        self._accelerators.append(acc)
+        return acc
+
+    def message_box(self, text, title="Message", style="info", buttons="ok"):
+        """Show a Win32 native modal message box. Returns the clicked button id."""
+        flag = {
+            "info": MB_ICONINFORMATION,
+            "warning": MB_ICONWARNING,
+            "error": MB_ICONERROR,
+            "question": MB_ICONQUESTION,
+            "none": 0,
+        }.get(style, MB_ICONINFORMATION)
+        flag |= {
+            "ok": MB_OK,
+            "okcancel": MB_OKCANCEL,
+            "yesno": MB_YESNO,
+            "yesnocancel": MB_YESNOCANCEL,
+        }.get(buttons, MB_OK)
+        return user32.MessageBoxW(self.hwnd, str(text), str(title), flag)
 
     def set_active_tab(self, tab_name):
         if self.tab_bar is None or tab_name == self.tab_bar.active_tab:
@@ -2225,6 +3014,7 @@ def create_button(
     border=None,
     accent=None,
     tab=None,
+    tooltip=None,
 ):
     """Create a custom-rendered button on the given GUIpi26 window."""
 
@@ -2240,6 +3030,7 @@ def create_button(
         border=border,
         accent=accent,
         tab=tab,
+        tooltip=tooltip,
     )
 
 
@@ -2387,3 +3178,34 @@ def create_dropdown(root, options, selected=None, placeholder="Select...", x=24,
 def create_progress_bar(root, value=0.0, x=24, y=24, width=240, height=8, accent=None, show_label=False, tab=None):
     """Create a non-interactive progress bar (value range 0.0 .. 1.0)."""
     return root.add_progress_bar(value=value, x=x, y=y, width=width, height=height, accent=accent, show_label=show_label, tab=tab)
+
+
+def create_list_box(root, items, selected_index=-1, x=24, y=24, width=280, height=220,
+                    item_height=28, on_change=None, tab=None, tooltip=None):
+    """Create a vertically scrolling list box with single-row selection."""
+    return root.add_list_box(items=items, selected_index=selected_index, x=x, y=y,
+                             width=width, height=height, item_height=item_height,
+                             on_change=on_change, tab=tab, tooltip=tooltip)
+
+
+def create_tree_view(root, nodes, selected_key=None, x=24, y=24, width=300, height=280,
+                     row_height=26, on_select=None, tab=None, tooltip=None):
+    """Create a hierarchical tree view with collapsible nodes."""
+    return root.add_tree_view(nodes=nodes, selected_key=selected_key, x=x, y=y,
+                              width=width, height=height, row_height=row_height,
+                              on_select=on_select, tab=tab, tooltip=tooltip)
+
+
+def create_menu_bar(root, menus, x=0, y=0, height=36):
+    """Create a top horizontal menu bar with cascading dropdown panels."""
+    return root.add_menu_bar(menus=menus, x=x, y=y, height=height)
+
+
+def create_accelerator(root, key, callback, ctrl=False, shift=False, alt=False, description=None):
+    """Register a keyboard shortcut on the window."""
+    return root.add_accelerator(key=key, callback=callback, ctrl=ctrl, shift=shift, alt=alt, description=description)
+
+
+def show_message_box(root, text, title="Message", style="info", buttons="ok"):
+    """Show a Win32 native modal message box. Returns the clicked button id."""
+    return root.message_box(text=text, title=title, style=style, buttons=buttons)
